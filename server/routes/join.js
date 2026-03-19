@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { createMagicLink, verifyMagicToken, createSessionToken, hashPassword } from '../services/auth.js';
+import { createSessionToken, hashPassword } from '../services/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../services/audit.js';
 
 const router = Router();
@@ -126,6 +127,66 @@ router.post('/claim', async (req, res, next) => {
         token: sessionToken,
         profileId: profile.id,
       });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/join/claim-authenticated
+ * Body: { token }
+ * Claims a profile for the currently authenticated user.
+ */
+router.post('/claim-authenticated', requireAuth, async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'token is required' });
+
+    const { rows: profileRows } = await pool.query(
+      `SELECT id, tree_id, claimed_by FROM profiles
+       WHERE invite_token = $1 AND deleted_at IS NULL`,
+      [token]
+    );
+
+    if (profileRows.length === 0) {
+      return res.status(404).json({ error: 'Invalid invite token' });
+    }
+
+    const profile = profileRows[0];
+    if (profile.claimed_by && profile.claimed_by !== req.user.id) {
+      return res.status(409).json({ error: 'Profile already claimed' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      if (!profile.claimed_by) {
+        await client.query(
+          `UPDATE profiles SET claimed_by = $1, invite_token = NULL
+           WHERE id = $2`,
+          [req.user.id, profile.id]
+        );
+      }
+
+      await client.query(
+        `INSERT INTO tree_members (tree_id, user_id, role)
+         VALUES ($1, $2, 'contributor')
+         ON CONFLICT (tree_id, user_id) DO NOTHING`,
+        [profile.tree_id, req.user.id]
+      );
+
+      await client.query('COMMIT');
+
+      logAction(req.user.id, 'profile.claim', 'profile', profile.id, null, { email: req.user.email });
+
+      res.json({ profileId: profile.id, claimed: true });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

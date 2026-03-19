@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import { useRef, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BRANCH, getRels } from '../data/familyData';
 import { relationships as relApi, facts as factsApi, stories as storiesApi } from '../api/client';
 import { useTree } from '../context/TreeContext';
@@ -10,6 +11,7 @@ export default function DetailPanel({
   person, people, rels, onClose, onViewPerson, onFocusPerson, onPhotoChange,
   onRelationshipAdded, onRelationshipRemoved,
 }) {
+  const { t, i18n } = useTranslation();
   const fileRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const [addRelOpen, setAddRelOpen] = useState(false);
@@ -51,8 +53,15 @@ export default function DetailPanel({
   const publicPhotoCount = person.photo ? 1 : 0;
   const publicDocCount = person.docs?.length || 0;
   const dates = person.birth
-    ? (person.death ? `${person.birth} – ${person.death} · Deceased` : `b. ${person.birth}`)
+    ? (person.death ? `${person.birth} – ${person.death} · ${t('detailPanel.deceased')}` : t('detailPanel.born', { year: person.birth }))
     : '';
+  const branchLabel = person.branch ? t(`addPersonModal.branchOptions.${person.branch}`, { defaultValue: br?.label || person.branch }) : person.branch;
+  const getRelationshipLabel = (relation) => {
+    if (relation.type === 'parent') return t('detailPanel.parentOf', { name: person.firstName });
+    if (relation.type === 'child') return t('detailPanel.childOf', { name: person.firstName });
+    if (relation.type === 'marriage') return t('detailPanel.spousePartner');
+    return relation.label;
+  };
 
   const handleUpload = () => fileRef.current?.click();
   const handleFile = (e) => {
@@ -63,7 +72,7 @@ export default function DetailPanel({
       try {
         await onPhotoChange(person.id, ev.target.result);
       } catch (err) {
-        toast(err.message || 'Failed to save photo', 'error');
+        toast(err.message || t('detailPanel.failedPhoto'), 'error');
       } finally {
         e.target.value = '';
       }
@@ -106,10 +115,10 @@ export default function DetailPanel({
       onRelationshipAdded?.(rel);
       setAddRelOpen(false);
       setRelTarget('');
-      toast('Connection added', 'info');
+      toast(t('detailPanel.connectionAdded'), 'info');
     } catch (err) {
       console.error('[Kin] Failed to add relationship:', err);
-      toast(err.message || 'Failed to add connection', 'error');
+      toast(err.message || t('detailPanel.failedConnectionAdd'), 'error');
     } finally {
       setRelSaving(false);
     }
@@ -119,10 +128,10 @@ export default function DetailPanel({
     try {
       await relApi.remove(relId);
       onRelationshipRemoved?.(relId);
-      toast('Connection removed', 'info');
+      toast(t('detailPanel.connectionRemoved'), 'info');
     } catch (err) {
       console.error('[Kin] Failed to remove relationship:', err);
-      toast(err.message || 'Failed to remove connection', 'error');
+      toast(err.message || t('detailPanel.failedConnectionRemove'), 'error');
     }
   };
 
@@ -156,16 +165,16 @@ export default function DetailPanel({
         {person.maiden && <div className={s.pmaiden}>née {person.maiden}</div>}
         <div className={s.pdates}>{dates}</div>
         <div className={s.branchBadge} style={{ background: br?.bg || '#eee', color: col }}>
-          {br?.label || person.branch}
+          {branchLabel}
         </div>
-        <div className={s.tabRow} role="tablist" aria-label="Person details views">
+        <div className={s.tabRow} role="tablist" aria-label={t('detailPanel.personDetailsViews')}>
           <button
             className={`${s.tabBtn} ${activeTab === 'profile' ? s.tabBtnActive : ''}`}
             onClick={() => setActiveTab('profile')}
             role="tab"
             aria-selected={activeTab === 'profile'}
           >
-            Profile Details
+            {t('detailPanel.profileDetails')}
           </button>
           <button
             className={`${s.tabBtn} ${activeTab === 'explore' ? s.tabBtnActive : ''}`}
@@ -173,14 +182,14 @@ export default function DetailPanel({
             role="tab"
             aria-selected={activeTab === 'explore'}
           >
-            Share & Explore
+            {t('detailPanel.shareExplore')}
           </button>
         </div>
 
         {activeTab === 'profile' && (
           <>
-            <div className={s.psect}>Biography</div>
-            <div className={s.pbio}>{person.bio || 'No biography on record.'}</div>
+            <div className={s.psect}>{t('detailPanel.biography')}</div>
+            <div className={s.pbio}>{person.bio || t('detailPanel.noBiography')}</div>
 
             {/* ── EAV Facts ── */}
             {person.facts && Object.keys(person.facts).length > 0 && (() => {
@@ -189,7 +198,7 @@ export default function DetailPanel({
               if (extraFacts.length === 0) return null;
               return (
                 <>
-                  <div className={s.psect}>Details</div>
+                  <div className={s.psect}>{t('detailPanel.details')}</div>
                   <div className={s.factsGrid}>
                     {extraFacts.map(([key, entries]) => (
                       <div key={key} className={s.factRow}>
@@ -199,16 +208,16 @@ export default function DetailPanel({
                           <span key={e.id} className={s.factActions}>
                             <button
                               className={s.factIconBtn}
-                              title={e.verified ? 'Unverify' : 'Verify'}
+                              title={e.verified ? t('detailPanel.unverify') : t('detailPanel.verify')}
                               onClick={async () => {
-                                try { await factsApi.verify(e.id); toast(e.verified ? 'Unverified' : 'Verified', 'info'); } catch (err) { toast(err.message, 'error'); }
+                                try { await factsApi.verify(e.id); toast(e.verified ? t('detailPanel.unverified') : t('detailPanel.verified'), 'info'); } catch (err) { toast(err.message, 'error'); }
                               }}
                             >{e.verified ? '✅' : '☑️'}</button>
                             <button
                               className={s.factIconBtn}
-                              title={e.locked ? 'Unlock' : 'Lock'}
+                              title={e.locked ? t('detailPanel.unlock') : t('detailPanel.lock')}
                               onClick={async () => {
-                                try { await factsApi.lock(e.id); toast(e.locked ? 'Unlocked' : 'Locked', 'info'); } catch (err) { toast(err.message, 'error'); }
+                                try { await factsApi.lock(e.id); toast(e.locked ? t('detailPanel.unlocked') : t('detailPanel.locked'), 'info'); } catch (err) { toast(err.message, 'error'); }
                               }}
                             >{e.locked ? '🔒' : '🔓'}</button>
                           </span>
@@ -220,7 +229,7 @@ export default function DetailPanel({
               );
             })()}
 
-            <div className={s.psect}>Connections</div>
+            <div className={s.psect}>{t('detailPanel.connections')}</div>
             <div className={s.rels}>
               {relations.map(r => {
                 const rp = people.find(x => x.id === r.id);
@@ -236,17 +245,17 @@ export default function DetailPanel({
                     </div>
                     <div className={s.rchipInfo}>
                       <div className={s.rchipName}>{rp.firstName} {rp.lastName}</div>
-                      <span className={s.rchipLbl} style={getLblStyle(r.type)}>{r.label}</span>
+                      <span className={s.rchipLbl} style={getLblStyle(r.type)}>{getRelationshipLabel(r)}</span>
                     </div>
                     <div className={s.rchipActions}>
-                      <button className={s.rchipBtn} onClick={() => onViewPerson(rp.id)}>View</button>
-                      <button className={s.rchipBtn} onClick={() => onFocusPerson(rp.id)}>Focus</button>
+                      <button className={s.rchipBtn} onClick={() => onViewPerson(rp.id)}>{t('common.view')}</button>
+                      <button className={s.rchipBtn} onClick={() => onFocusPerson(rp.id)}>{t('common.focus')}</button>
                       {relObj && (
                         <button
                           className={s.rchipBtn}
                           style={{ color: '#c44', background: 'rgba(204,68,68,0.1)' }}
                           onClick={() => handleRemoveRelationship(relObj.id)}
-                          title="Remove connection"
+                          title={t('detailPanel.removeConnection')}
                         >✕</button>
                       )}
                     </div>
@@ -255,7 +264,7 @@ export default function DetailPanel({
               })}
               {relations.length === 0 && (
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>
-                  No connections yet.
+                  {t('detailPanel.noConnections')}
                 </div>
               )}
             </div>
@@ -266,7 +275,7 @@ export default function DetailPanel({
                 style={{ marginTop: 6 }}
                 onClick={() => setAddRelOpen(true)}
               >
-                + Add Connection
+                + {t('detailPanel.addConnection')}
               </button>
             ) : (
               <div style={{
@@ -283,10 +292,10 @@ export default function DetailPanel({
                       color: 'var(--text)', fontFamily: "'Inter', sans-serif",
                     }}
                   >
-                    <option value="parent">Parent of {person.firstName}</option>
-                    <option value="child">Child of {person.firstName}</option>
-                    <option value="spouse" disabled={personHasSpouse}>Spouse / Partner{personHasSpouse ? ' (already linked)' : ''}</option>
-                    <option value="sibling">Sibling</option>
+                    <option value="parent">{t('detailPanel.parentOf', { name: person.firstName })}</option>
+                    <option value="child">{t('detailPanel.childOf', { name: person.firstName })}</option>
+                    <option value="spouse" disabled={personHasSpouse}>{personHasSpouse ? t('detailPanel.spouseAlreadyLinked') : t('detailPanel.spousePartner')}</option>
+                    <option value="sibling">{t('detailPanel.sibling')}</option>
                   </select>
                 </div>
                 <select
@@ -299,14 +308,14 @@ export default function DetailPanel({
                     marginBottom: 6,
                   }}
                 >
-                  <option value="">— select person —</option>
+                  <option value="">— {t('detailPanel.selectPerson')} —</option>
                   {availablePeople.map(p => (
                     <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
                   ))}
                 </select>
                 {relType === 'spouse' && availablePeople.length === 0 && (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    Only people without an existing spouse can be linked as a partner.
+                    {t('detailPanel.spouseRule')}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -316,20 +325,20 @@ export default function DetailPanel({
                     disabled={!relTarget || relSaving}
                     style={{ flex: 1, padding: '6px 0', textAlign: 'center' }}
                   >
-                    {relSaving ? 'Saving…' : 'Add'}
+                    {relSaving ? t('detailPanel.saving') : t('common.add')}
                   </button>
                   <button
                     className={s.rchipBtn}
                     onClick={() => { setAddRelOpen(false); setRelTarget(''); }}
                     style={{ padding: '6px 10px' }}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                 </div>
               </div>
             )}
 
-            <div className={s.psect}>Documents</div>
+            <div className={s.psect}>{t('detailPanel.documents')}</div>
             <div className={s.docs}>
               {(person.docs || []).map((d, i) => (
                 <div key={i} className={s.ditem}>
@@ -338,40 +347,40 @@ export default function DetailPanel({
                 </div>
               ))}
               {(person.docs || []).length === 0 && (
-                <div className={s.emptyState}>No documents added yet.</div>
+                <div className={s.emptyState}>{t('detailPanel.noDocuments')}</div>
               )}
             </div>
 
-            <div className={s.psect}>Stories & Memories</div>
+            <div className={s.psect}>{t('detailPanel.storiesMemories')}</div>
             {storyList.map(st => (
               <div key={st.id} className={s.storyCard}>
                 <div className={s.storyTitle}>{st.title}</div>
                 <div className={s.storyBody}>{st.body}</div>
                 <div className={s.storyMeta}>
-                  {st.author_name || 'Unknown'} · {new Date(st.created_at).toLocaleDateString()}
+                  {st.author_name || t('detailPanel.unknownAuthor')} · {new Date(st.created_at).toLocaleDateString(i18n.language)}
                 </div>
               </div>
             ))}
             {storyList.length === 0 && !addingStory && storiesLoaded && (
               <div className={s.emptyState}>
-                No stories yet. Be the first to share a memory.
+                {t('detailPanel.noStories')}
               </div>
             )}
             {!addingStory ? (
               <button className={s.uploadBtn} style={{ marginTop: 6 }} onClick={() => setAddingStory(true)}>
-                + Add Story
+                + {t('detailPanel.addStory')}
               </button>
             ) : (
               <div style={{ marginTop: 6 }}>
                 <input
                   className={s.storyInput}
-                  placeholder="Story title"
+                  placeholder={t('detailPanel.storyTitlePlaceholder')}
                   value={newStory.title}
                   onChange={e => setNewStory(prev => ({ ...prev, title: e.target.value }))}
                 />
                 <textarea
                   className={s.storyTextarea}
-                  placeholder="Share a memory or story…"
+                  placeholder={t('detailPanel.storyBodyPlaceholder')}
                   value={newStory.body}
                   onChange={e => setNewStory(prev => ({ ...prev, body: e.target.value }))}
                 />
@@ -390,91 +399,91 @@ export default function DetailPanel({
                         setStoryList(prev => [created, ...prev]);
                         setNewStory({ title: '', body: '' });
                         setAddingStory(false);
-                        toast('Story added', 'info');
+                        toast(t('detailPanel.storyAdded'), 'info');
                       } catch (err) {
-                        toast(err.message || 'Failed to save story', 'error');
+                        toast(err.message || t('detailPanel.failedStory'), 'error');
                       }
                     }}
-                  >Save</button>
+                  >{t('common.save')}</button>
                   <button
                     className={s.rchipBtn}
                     style={{ padding: '6px 10px' }}
                     onClick={() => { setAddingStory(false); setNewStory({ title: '', body: '' }); }}
-                  >Cancel</button>
+                  >{t('common.cancel')}</button>
                 </div>
               </div>
             )}
 
-            <button className={s.uploadBtn} onClick={handleUpload}>Upload Photo</button>
+            <button className={s.uploadBtn} onClick={handleUpload}>{t('detailPanel.uploadPhoto')}</button>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
           </>
         )}
 
         {activeTab === 'explore' && (
           <>
-            <div className={s.psect}>Public Page</div>
+            <div className={s.psect}>{t('detailPanel.publicPage')}</div>
             <div className={s.exploreCard}>
-              <div className={s.exploreTitle}>What other relatives can browse</div>
+              <div className={s.exploreTitle}>{t('detailPanel.browseTitle')}</div>
               <div className={s.exploreBody}>
-                Use this view as the ancestry-style, read-only surface for stories, photos, and documents that should feel safe to explore.
+                {t('detailPanel.browseBody')}
               </div>
               {publicUrl ? (
                 <>
                   <div className={s.linkBox}>{publicUrl}</div>
                   <div className={s.actionRow}>
                     <button className={s.primaryAction} onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}>
-                      Open Public Page
+                      {t('detailPanel.openPublicPage')}
                     </button>
                     <button
                       className={s.secondaryAction}
                       onClick={() => {
                         navigator.clipboard.writeText(publicUrl);
-                        toast('Public link copied', 'info');
+                        toast(t('detailPanel.publicLinkCopied'), 'info');
                       }}
                     >
-                      Copy Link
+                      {t('detailPanel.copyLink')}
                     </button>
                   </div>
                 </>
               ) : (
-                <div className={s.emptyState}>No public page has been generated for this person yet.</div>
+                <div className={s.emptyState}>{t('detailPanel.noPublicPage')}</div>
               )}
             </div>
 
-            <div className={s.psect}>Explore Summary</div>
+            <div className={s.psect}>{t('detailPanel.exploreSummary')}</div>
             <div className={s.summaryGrid}>
               <div className={s.summaryCard}>
                 <div className={s.summaryCount}>{storyList.length}</div>
-                <div className={s.summaryLabel}>Stories</div>
+                <div className={s.summaryLabel}>{t('detailPanel.stories')}</div>
               </div>
               <div className={s.summaryCard}>
                 <div className={s.summaryCount}>{publicPhotoCount}</div>
-                <div className={s.summaryLabel}>Photos</div>
+                <div className={s.summaryLabel}>{t('detailPanel.photos')}</div>
               </div>
               <div className={s.summaryCard}>
                 <div className={s.summaryCount}>{publicDocCount}</div>
-                <div className={s.summaryLabel}>Documents</div>
+                <div className={s.summaryLabel}>{t('detailPanel.documentsLabel')}</div>
               </div>
             </div>
 
-            <div className={s.psect}>Stories People Can Read</div>
+            <div className={s.psect}>{t('detailPanel.storiesPeopleCanRead')}</div>
             {storyList.length > 0 ? storyList.map(st => (
               <div key={st.id} className={s.storyCard}>
                 <div className={s.storyTitle}>{st.title}</div>
                 <div className={s.storyBody}>{st.body}</div>
                 <div className={s.storyMeta}>
-                  {st.author_name || 'Unknown'} · {new Date(st.created_at).toLocaleDateString()}
+                  {st.author_name || t('detailPanel.unknownAuthor')} · {new Date(st.created_at).toLocaleDateString(i18n.language)}
                 </div>
               </div>
             )) : (
-              <div className={s.emptyState}>No public stories are available for this person yet.</div>
+              <div className={s.emptyState}>{t('detailPanel.noPublicStories')}</div>
             )}
 
-            <div className={s.psect}>Photos & Documents</div>
+            <div className={s.psect}>{t('detailPanel.photosDocuments')}</div>
             {person.photo && (
               <div className={s.mediaCard}>
                 <img className={s.mediaPreview} src={person.photo} alt={`${person.firstName} ${person.lastName}`} />
-                <div className={s.mediaMeta}>Profile photo</div>
+                <div className={s.mediaMeta}>{t('detailPanel.profilePhoto')}</div>
               </div>
             )}
             {(person.docs || []).map((doc, index) => (
@@ -484,7 +493,7 @@ export default function DetailPanel({
               </div>
             ))}
             {!person.photo && publicDocCount === 0 && (
-              <div className={s.emptyState}>No public photos or documents are available yet.</div>
+              <div className={s.emptyState}>{t('detailPanel.noPublicMedia')}</div>
             )}
           </>
         )}
@@ -492,9 +501,9 @@ export default function DetailPanel({
         {/* ── Magic Link Invite ── */}
         {person.invite_token && !person.claimed_by && (
           <>
-            <div className={s.psect}>Invite Link</div>
+            <div className={s.psect}>{t('detailPanel.inviteLink')}</div>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              Share this link so {person.firstName} can claim their profile:
+              {t('detailPanel.inviteDescription', { name: person.firstName })}
             </p>
             <div style={{
               display: 'flex', gap: 6, alignItems: 'center',
@@ -517,26 +526,26 @@ export default function DetailPanel({
                   setTimeout(() => setCopied(false), 2000);
                 }}
               >
-                {copied ? '✓ Copied' : 'Copy'}
+                {copied ? `✓ ${t('common.copied')}` : t('common.copy')}
               </button>
             </div>
           </>
         )}
         {person.claimed_by && (
           <>
-            <div className={s.psect}>Profile Status</div>
+            <div className={s.psect}>{t('detailPanel.profileStatus')}</div>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
               padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
               background: 'var(--tag-marry-bg)', color: 'var(--tag-marry)',
             }}>
-              ✓ Profile Claimed
+              ✓ {t('detailPanel.profileClaimed')}
             </div>
           </>
         )}
         {person.public_slug && (
           <>
-            <div className={s.psect}>Public Profile</div>
+            <div className={s.psect}>{t('detailPanel.publicProfile')}</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 readOnly
@@ -552,9 +561,9 @@ export default function DetailPanel({
                 className={s.rchipBtn}
                 onClick={() => {
                   navigator.clipboard.writeText(`${window.location.origin}/p/${person.public_slug}`);
-                  toast('Public URL copied', 'info');
+                  toast(t('detailPanel.publicUrlCopied'), 'info');
                 }}
-              >Copy</button>
+              >{t('common.copy')}</button>
             </div>
           </>
         )}

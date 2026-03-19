@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { requireAuth, requireTreeMember } from '../middleware/auth.js';
+import { requireAuth, requireTreeMember, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -71,6 +71,24 @@ router.get('/:treeId', requireAuth, requireTreeMember, async (req, res, next) =>
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tree not found' });
     res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:treeId', requireAuth, requireTreeMember, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE trees
+       SET deleted_at = now()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id`,
+      [req.params.treeId]
+    );
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Tree not found' });
+
+    res.json({ success: true, id: rows[0].id });
   } catch (err) {
     next(err);
   }

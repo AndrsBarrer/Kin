@@ -162,6 +162,8 @@ const Scene = forwardRef(function Scene({
     const mo = new THREE.Vector2();
 
     let drag = false, lx = 0, ly = 0, th = 0, ph = Math.PI / 2, cr = 620;
+    let activePointerId = null;
+    let pointerMoved = false;
     const ct = new THREE.Vector3();
     let simOn = true;
     let hovId = null;
@@ -179,39 +181,80 @@ const Scene = forwardRef(function Scene({
       camera.lookAt(ct);
     }
 
-    // Mouse events
-    renderer.domElement.addEventListener('mousedown', e => { drag = true; lx = e.clientX; ly = e.clientY; });
-    window.addEventListener('mousemove', e => {
-      if (!drag) return;
+    function updatePointerPosition(clientX, clientY) {
+      mo.x = (clientX / innerWidth) * 2 - 1;
+      mo.y = -(clientY / innerHeight) * 2 + 1;
+    }
+
+    function pickNode(clientX, clientY) {
+      updatePointerPosition(clientX, clientY);
+      ray.setFromCamera(mo, camera);
+      const hits = ray.intersectObjects(Object.values(nodeMap).map(n => n.sp), false);
+      return hits[0]?.object?.userData?.pid || null;
+    }
+
+    function handlePointerDown(e) {
+      activePointerId = e.pointerId;
+      pointerMoved = false;
+      drag = true;
+      lx = e.clientX;
+      ly = e.clientY;
+      renderer.domElement.setPointerCapture?.(e.pointerId);
+    }
+
+    function handlePointerMove(e) {
+      if (!drag || (activePointerId !== null && e.pointerId !== activePointerId)) return;
+      const deltaX = e.clientX - lx;
+      const deltaY = e.clientY - ly;
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) pointerMoved = true;
       const mode = internals.current?.graphMode || '2d';
       if (mode === '2d') {
         const panFactor = cr / 620;
-        ct.x -= (e.clientX - lx) * panFactor;
-        ct.y += (e.clientY - ly) * panFactor;
+        ct.x -= deltaX * panFactor;
+        ct.y += deltaY * panFactor;
         lx = e.clientX;
         ly = e.clientY;
         updCam();
         return;
       }
-      th -= (e.clientX - lx) * .005;
-      ph = Math.max(.08, Math.min(Math.PI - .08, ph + (e.clientY - ly) * .005));
+      th -= deltaX * .005;
+      ph = Math.max(.08, Math.min(Math.PI - .08, ph + deltaY * .005));
       lx = e.clientX; ly = e.clientY; updCam();
-    });
-    window.addEventListener('mouseup', () => { drag = false; });
+    }
+
+    function handlePointerUp(e) {
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      drag = false;
+      renderer.domElement.releasePointerCapture?.(e.pointerId);
+      activePointerId = null;
+
+      if (!pointerMoved) {
+        const id = pickNode(e.clientX, e.clientY);
+        if (!id) return;
+        const st = internals.current;
+        if (st?.pathMode) st.onPathSelect?.(id);
+        else st?.onNodeClick?.(id);
+      }
+    }
+
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
     renderer.domElement.addEventListener('wheel', e => {
       cr = Math.max(120, Math.min(1800, cr + e.deltaY * .5)); updCam();
     }, { passive: true });
 
     renderer.domElement.style.cursor = 'grab';
+    renderer.domElement.style.touchAction = 'none';
 
     // Hover tooltip
-    renderer.domElement.addEventListener('mousemove', e => {
+    function handleHover(e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
       if (drag) return;
-      mo.x = (e.clientX / innerWidth) * 2 - 1;
-      mo.y = -(e.clientY / innerHeight) * 2 + 1;
+      updatePointerPosition(e.clientX, e.clientY);
       ray.setFromCamera(mo, camera);
-      const sps = Object.values(nodeMap).map(n => n.sp);
-      const hits = ray.intersectObjects(sps, false);
+      const hits = ray.intersectObjects(Object.values(nodeMap).map(n => n.sp), false);
       const tip = tooltipRef.current;
       if (!tip) return;
       if (hits.length) {
@@ -231,20 +274,8 @@ const Scene = forwardRef(function Scene({
         tip.classList.remove('show');
         renderer.domElement.style.cursor = drag ? 'grabbing' : 'grab';
       }
-    });
-
-    // Click
-    renderer.domElement.addEventListener('click', e => {
-      mo.x = (e.clientX / innerWidth) * 2 - 1;
-      mo.y = -(e.clientY / innerHeight) * 2 + 1;
-      ray.setFromCamera(mo, camera);
-      const hits = ray.intersectObjects(Object.values(nodeMap).map(n => n.sp), false);
-      if (!hits.length) return;
-      const id = hits[0].object.userData.pid;
-      const st = internals.current;
-      if (st?.pathMode) { st.onPathSelect?.(id); }
-      else { st?.onNodeClick?.(id); }
-    });
+    }
+    renderer.domElement.addEventListener('pointermove', handleHover);
 
     // Force sim step
     function stepForce() {
@@ -355,6 +386,11 @@ const Scene = forwardRef(function Scene({
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointermove', handleHover);
       if (mountNode && renderer.domElement.parentNode === mountNode) {
         mountNode.removeChild(renderer.domElement);
       }
@@ -504,7 +540,7 @@ const Scene = forwardRef(function Scene({
     }
   });
 
-  return <div ref={mountRef} style={{ position: 'fixed', inset: 0, zIndex: 0 }} />;
+  return <div ref={mountRef} style={{ position: 'fixed', inset: 0, zIndex: 0, touchAction: 'none' }} />;
 });
 
 export default Scene;

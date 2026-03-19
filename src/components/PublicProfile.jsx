@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function PublicProfile() {
+  const { t, i18n } = useTranslation();
   const { slug } = useParams();
   const [profile, setProfile] = useState(null);
   const [stories, setStories] = useState([]);
@@ -13,7 +15,7 @@ export default function PublicProfile() {
   useEffect(() => {
     fetch(`${API_BASE}/profiles/public/${encodeURIComponent(slug)}`)
       .then(res => {
-        if (!res.ok) throw new Error('Profile not found');
+        if (!res.ok) throw new Error(t('publicProfile.profileNotFound'));
         return res.json();
       })
       .then((data) => {
@@ -28,13 +30,13 @@ export default function PublicProfile() {
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, t]);
 
-  if (loading) return <div style={styles.container}><p style={styles.loading}>Loading...</p></div>;
+  if (loading) return <div style={styles.container}><p style={styles.loading}>{t('common.loading')}</p></div>;
   if (error) return (
     <div style={styles.container}>
       <p style={styles.error}>{error}</p>
-      <Link to="/" style={styles.link}>← Back to Tree</Link>
+      <Link to="/" style={styles.link}>← {t('publicProfile.backToTree')}</Link>
     </div>
   );
 
@@ -66,17 +68,17 @@ export default function PublicProfile() {
         {profile.maidenName && <p style={styles.maiden}>née {profile.maidenName}</p>}
         {dates && <p style={styles.dates}>{dates}</p>}
         {profile.isLiving && (
-          <span style={styles.livingBadge}>Living</span>
+          <span style={styles.livingBadge}>{t('publicProfile.living')}</span>
         )}
         {bio && (
           <>
-            <h2 style={styles.section}>Biography</h2>
+            <h2 style={styles.section}>{t('publicProfile.biography')}</h2>
             <p style={styles.bio}>{bio}</p>
           </>
         )}
         {extraFacts.length > 0 && (
           <>
-            <h2 style={styles.section}>Details</h2>
+            <h2 style={styles.section}>{t('publicProfile.details')}</h2>
             {extraFacts.map(([key, entries]) => (
               <div key={key} style={styles.factRow}>
                 <span style={styles.factLabel}>{key.replace(/_/g, ' ')}</span>
@@ -88,46 +90,46 @@ export default function PublicProfile() {
         <div style={styles.summaryGrid}>
           <div style={styles.summaryCard}>
             <strong style={styles.summaryCount}>{stories.length}</strong>
-            <span style={styles.summaryLabel}>Stories</span>
+            <span style={styles.summaryLabel}>{t('publicProfile.stories')}</span>
           </div>
           <div style={styles.summaryCard}>
             <strong style={styles.summaryCount}>{photos.length}</strong>
-            <span style={styles.summaryLabel}>Photos</span>
+            <span style={styles.summaryLabel}>{t('publicProfile.photos')}</span>
           </div>
           <div style={styles.summaryCard}>
             <strong style={styles.summaryCount}>{documents.length}</strong>
-            <span style={styles.summaryLabel}>Documents</span>
+            <span style={styles.summaryLabel}>{t('publicProfile.documents')}</span>
           </div>
         </div>
-        <h2 style={styles.section}>Stories & Memories</h2>
+        <h2 style={styles.section}>{t('publicProfile.storiesMemories')}</h2>
         {stories.length > 0 ? stories.map((story) => (
           <article key={story.id} style={styles.storyCard}>
             <h3 style={styles.storyTitle}>{story.title}</h3>
             <p style={styles.storyBody}>{story.body}</p>
             <p style={styles.storyMeta}>
-              {story.author_name || 'Unknown'} · {new Date(story.created_at).toLocaleDateString()}
+              {story.author_name || t('publicProfile.unknownAuthor')} · {new Date(story.created_at).toLocaleDateString(i18n.language)}
             </p>
           </article>
         )) : (
-          <p style={styles.emptyState}>No public stories have been shared yet.</p>
+          <p style={styles.emptyState}>{t('publicProfile.noPublicStories')}</p>
         )}
-        <h2 style={styles.section}>Photos & Documents</h2>
+        <h2 style={styles.section}>{t('publicProfile.photosDocuments')}</h2>
         {photos.map((item) => (
           <figure key={item.id} style={styles.mediaCard}>
-            <img src={item.url} alt="Family archive" style={styles.mediaImage} />
-            <figcaption style={styles.mediaCaption}>Photo archive item</figcaption>
+            <img src={item.url} alt={t('publicProfile.photoArchiveItem')} style={styles.mediaImage} />
+            <figcaption style={styles.mediaCaption}>{t('publicProfile.photoArchiveItem')}</figcaption>
           </figure>
         ))}
         {documents.map((item) => (
           <div key={item.id} style={styles.documentRow}>
             <span style={styles.documentIcon}>📄</span>
-            <a href={item.url} target="_blank" rel="noreferrer" style={styles.documentLink}>Open document</a>
+            <a href={item.url} target="_blank" rel="noreferrer" style={styles.documentLink}>{t('publicProfile.openDocument')}</a>
           </div>
         ))}
         {photos.length === 0 && documents.length === 0 && (
-          <p style={styles.emptyState}>No public photos or documents are available yet.</p>
+          <p style={styles.emptyState}>{t('publicProfile.noPublicMedia')}</p>
         )}
-        <Link to="/" style={styles.link}>← View Full Tree</Link>
+        <Link to="/" style={styles.link}>← {t('publicProfile.backToTree')}</Link>
       </div>
     </div>
   );

@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { profiles as profilesApi } from '../api/client';
 import { useTree } from '../context/TreeContext';
 import s from './AddPersonModal.module.css';
 
 export default function AddPersonModal({ people, onSave, onClose }) {
+  const { t } = useTranslation();
   const [fn, setFn] = useState('');
   const [ln, setLn] = useState('');
   const [mn, setMn] = useState('');
@@ -41,7 +43,7 @@ export default function AddPersonModal({ people, onSave, onClose }) {
   }, [fn, ln, activeTreeId]);
 
   const handleSave = async () => {
-    if (!fn.trim() || !ln.trim()) { alert('First and last name required.'); return; }
+    if (!fn.trim() || !ln.trim()) { alert(t('addPersonModal.firstNameRequired')); return; }
     setSaving(true);
     await onSave({
       firstName: fn.trim(),
@@ -62,93 +64,93 @@ export default function AddPersonModal({ people, onSave, onClose }) {
   return (
     <div className={s.backdrop} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={s.modal}>
-        <h2>Add to Family Tree</h2>
+        <h2>{t('addPersonModal.title')}</h2>
         <div className={s.frow}>
           <div className={s.fg}>
-            <label>First Name *</label>
-            <input type="text" placeholder="Maria" value={fn} onChange={e => setFn(e.target.value)} />
+            <label>{t('addPersonModal.firstName')} *</label>
+            <input type="text" placeholder={t('addPersonModal.placeholders.firstName')} value={fn} onChange={e => setFn(e.target.value)} />
           </div>
           <div className={s.fg}>
-            <label>Last Name *</label>
-            <input type="text" placeholder="García" value={ln} onChange={e => setLn(e.target.value)} />
+            <label>{t('addPersonModal.lastName')} *</label>
+            <input type="text" placeholder={t('addPersonModal.placeholders.lastName')} value={ln} onChange={e => setLn(e.target.value)} />
           </div>
         </div>
         {dupes.length > 0 && (
           <div className={s.dupeWarning}>
-            <div className={s.dupeTitle}>⚠ Possible duplicates found:</div>
+            <div className={s.dupeTitle}>⚠ {t('addPersonModal.duplicateTitle')}</div>
             {dupes.map(d => (
               <div key={d.id} className={s.dupeItem}>
                 {d.first_name} {d.last_name}
                 {d.maiden_name ? ` (née ${d.maiden_name})` : ''}
-                <span className={s.dupeScore}>{d.score}% match</span>
+                <span className={s.dupeScore}>{t('addPersonModal.duplicateMatch', { score: d.score })}</span>
               </div>
             ))}
           </div>
         )}
         <div className={s.frow}>
           <div className={s.fg}>
-            <label>Maiden Name</label>
+            <label>{t('addPersonModal.maidenName')}</label>
             <input type="text" value={mn} onChange={e => setMn(e.target.value)} />
           </div>
           <div className={s.fg}>
-            <label>Gender</label>
+            <label>{t('addPersonModal.gender')}</label>
             <select value={gn} onChange={e => setGn(e.target.value)}>
-              <option value="M">Male</option>
-              <option value="F">Female</option>
-              <option value="O">Other / Unknown</option>
+              <option value="M">{t('addPersonModal.genderOptions.male')}</option>
+              <option value="F">{t('addPersonModal.genderOptions.female')}</option>
+              <option value="O">{t('addPersonModal.genderOptions.other')}</option>
             </select>
           </div>
         </div>
         <div className={s.frow}>
           <div className={s.fg}>
-            <label>Birth Year</label>
-            <input type="text" placeholder="1945" value={by} onChange={e => setBy(e.target.value)} />
+            <label>{t('addPersonModal.birthYear')}</label>
+            <input type="text" placeholder={t('addPersonModal.placeholders.birthYear')} value={by} onChange={e => setBy(e.target.value)} />
           </div>
           <div className={s.fg}>
-            <label>Death Year</label>
-            <input type="text" placeholder="if applicable" value={dy} onChange={e => setDy(e.target.value)} />
+            <label>{t('addPersonModal.deathYear')}</label>
+            <input type="text" placeholder={t('addPersonModal.placeholders.deathYear')} value={dy} onChange={e => setDy(e.target.value)} />
           </div>
         </div>
         <div className={s.fg}>
-          <label>Branch</label>
+          <label>{t('addPersonModal.branch')}</label>
           <select value={br} onChange={e => setBr(e.target.value)}>
-            <option value="paternal">Paternal</option>
-            <option value="maternal">Maternal</option>
-            <option value="sibling">Sibling branch</option>
-            <option value="married">Married in</option>
+            <option value="paternal">{t('addPersonModal.branchOptions.paternal')}</option>
+            <option value="maternal">{t('addPersonModal.branchOptions.maternal')}</option>
+            <option value="sibling">{t('addPersonModal.branchOptions.sibling')}</option>
+            <option value="married">{t('addPersonModal.branchOptions.married')}</option>
           </select>
         </div>
         <div className={s.fg}>
-          <label>Biography</label>
-          <textarea placeholder="A few words about this person…" value={bio} onChange={e => setBio(e.target.value)} />
+          <label>{t('addPersonModal.biography')}</label>
+          <textarea placeholder={t('addPersonModal.placeholders.biography')} value={bio} onChange={e => setBio(e.target.value)} />
         </div>
         <div className={s.frow}>
           <div className={s.fg}>
-            <label>Parent 1</label>
+            <label>{t('addPersonModal.parent1')}</label>
             <select value={p1} onChange={e => setP1(e.target.value)}>
-              <option value="">— none —</option>
+              <option value="">— {t('addPersonModal.noneOption')} —</option>
               {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
             </select>
           </div>
           <div className={s.fg}>
-            <label>Parent 2</label>
+            <label>{t('addPersonModal.parent2')}</label>
             <select value={p2} onChange={e => setP2(e.target.value)}>
-              <option value="">— none —</option>
+              <option value="">— {t('addPersonModal.noneOption')} —</option>
               {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
             </select>
           </div>
         </div>
         <div className={s.fg}>
-          <label>Spouse / Partner</label>
+          <label>{t('addPersonModal.spouse')}</label>
           <select value={sp} onChange={e => setSp(e.target.value)}>
-            <option value="">— none —</option>
+            <option value="">— {t('addPersonModal.noneOption')} —</option>
             {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
           </select>
         </div>
         <div className={s.actions}>
-          <button className={s.cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button className={s.cancelBtn} onClick={onClose} disabled={saving}>{t('common.cancel')}</button>
           <button className={s.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Add Person'}
+            {saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson')}
           </button>
         </div>
       </div>

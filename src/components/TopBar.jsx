@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BRANCH, bfs } from '../data/familyData';
+import LanguageToggle from './LanguageToggle';
 import s from './TopBar.module.css';
 
 function normalizeText(value) {
@@ -15,8 +17,10 @@ export default function TopBar({
   onSetFocus, onOpenPanel, onTogglePathMode, onToggleGraphMode, onResetView, onOpenModal,
   sceneRef,
 }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathA, setPathA] = useState(null);
   const [pathB, setPathB] = useState(null);
   const [pathBanner, setPathBanner] = useState(null);
@@ -41,6 +45,7 @@ export default function TopBar({
   const handleSearchClick = (p) => {
     setShowResults(false);
     setQuery('');
+    setMobileMenuOpen(false);
     onSetFocus(p.id);
     onOpenPanel(p.id);
   };
@@ -51,6 +56,7 @@ export default function TopBar({
   }, [matches]);
 
   const handlePathToggle = () => {
+    setMobileMenuOpen(false);
     if (pathMode) {
       setPathA(null); setPathB(null); setPathBanner(null);
       sceneRef.current?.__sceneApi?.highlightPath([]);
@@ -66,13 +72,28 @@ export default function TopBar({
     if (pathMode) onTogglePathMode();
   };
 
+  const handleOpenAddPerson = () => {
+    setMobileMenuOpen(false);
+    onOpenModal();
+  };
+
+  const handleReset = () => {
+    setMobileMenuOpen(false);
+    onResetView();
+  };
+
+  const handleToggleGraph = () => {
+    setMobileMenuOpen(false);
+    onToggleGraphMode?.();
+  };
+
   // Called from App when a node is clicked in path mode
   const handlePathSelect = useCallback((id) => {
     if (!pathA) {
       setPathA(id);
       const first = people.find(x => x.id === id);
       if (first) {
-        setPathBanner(`<strong>${first.firstName} ${first.lastName}</strong> selected as the first person. Click a second person to see how they are connected.`);
+        setPathBanner(t('topBar.selectedFirst', { name: `${first.firstName} ${first.lastName}` }));
       }
     } else if (!pathB && id !== pathA) {
       setPathB(id);
@@ -81,15 +102,25 @@ export default function TopBar({
       const pa = people.find(x => x.id === pathA);
       const pb = people.find(x => x.id === id);
       if (!path) {
-        setPathBanner(`No connection found between <strong>${pa.firstName}</strong> and <strong>${pb.firstName}</strong>.`);
+        setPathBanner(t('topBar.noConnection', {
+          first: pa.firstName,
+          second: pb.firstName,
+        }));
       } else {
         const relationships = path.length - 1;
         const peopleOnPath = path.length;
-        setPathBanner(`<strong>${pa.firstName} ${pa.lastName}</strong> and <strong>${pb.firstName} ${pb.lastName}</strong> are connected by <strong>${relationships} relationship${relationships !== 1 ? 's' : ''}</strong> across <strong>${peopleOnPath} node${peopleOnPath !== 1 ? 's' : ''}</strong>.`);
+        setPathBanner(t('topBar.connectionFound', {
+          first: `${pa.firstName} ${pa.lastName}`,
+          second: `${pb.firstName} ${pb.lastName}`,
+          relationships,
+          relationshipSuffix: relationships !== 1 ? 's' : '',
+          people: peopleOnPath,
+          peopleSuffix: peopleOnPath !== 1 ? 's' : '',
+        }));
         sceneRef.current?.__sceneApi?.highlightPath(path);
       }
     }
-  }, [pathA, pathB, people, rels, sceneRef]);
+  }, [pathA, pathB, people, rels, sceneRef, t]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -109,10 +140,10 @@ export default function TopBar({
   const pAName = pathA ? people.find(p => p.id === pathA) : null;
   const pBName = pathB ? people.find(p => p.id === pathB) : null;
   const pathInstruction = !pathA
-    ? 'Step 1: Click the first person in the tree.'
+    ? t('topBar.pathStepOne')
     : !pathB
-      ? `Step 2: ${pAName?.firstName || 'First person'} selected. Click the second person.`
-      : 'Connection found. Review the highlighted path below.';
+      ? t('topBar.pathStepTwo', { name: pAName?.firstName || t('topBar.firstPerson') })
+      : t('topBar.pathFound');
 
   return (
     <>
@@ -134,7 +165,7 @@ export default function TopBar({
           <input
             className={s.searchInput}
             type="text"
-            placeholder="Search family members…"
+            placeholder={t('topBar.searchPlaceholder')}
             autoComplete="off"
             value={query}
             onChange={e => { setQuery(e.target.value); setShowResults(true); }}
@@ -163,36 +194,66 @@ export default function TopBar({
                   </div>
                 );
               }) : (
-                <div className={s.searchEmpty}>No matching family members found.</div>
+                <div className={s.searchEmpty}>{t('topBar.noMatches')}</div>
               )}
             </div>
           )}
         </div>
+        <div className={s.desktopActions}>
+          <button
+            className={`${s.tbtn} ${pathMode ? s.pathBtnActive : ''}`}
+            onClick={handlePathToggle}
+          >{t('topBar.findConnection')}</button>
+          {is3DAvailable && (
+            <div className={s.viewToggle} aria-label="Graph view mode">
+              <button
+                className={`${s.viewBtn} ${graphMode === '2d' ? s.viewBtnActive : ''}`}
+                onClick={graphMode === '3d' ? onToggleGraphMode : undefined}
+                type="button"
+              >
+                {t('topBar.view2d')}
+              </button>
+              <button
+                className={`${s.viewBtn} ${graphMode === '3d' ? s.viewBtnActive : ''}`}
+                onClick={graphMode === '2d' ? onToggleGraphMode : undefined}
+                type="button"
+              >
+                {t('topBar.view3d')}
+              </button>
+            </div>
+          )}
+          <button className={`${s.tbtn} ${s.addBtn}`} onClick={handleOpenAddPerson}>+ {t('topBar.addPerson')}</button>
+          <button className={s.tbtn} onClick={handleReset}>{t('topBar.resetView')}</button>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <LanguageToggle />
+        </div>
         <button
-          className={`${s.tbtn} ${pathMode ? s.pathBtnActive : ''}`}
-          onClick={handlePathToggle}
-        >Find Connection</button>
-        {is3DAvailable && (
-          <div className={s.viewToggle} aria-label="Graph view mode">
-            <button
-              className={`${s.viewBtn} ${graphMode === '2d' ? s.viewBtnActive : ''}`}
-              onClick={graphMode === '3d' ? onToggleGraphMode : undefined}
-              type="button"
-            >
-              2D View
-            </button>
-            <button
-              className={`${s.viewBtn} ${graphMode === '3d' ? s.viewBtnActive : ''}`}
-              onClick={graphMode === '2d' ? onToggleGraphMode : undefined}
-              type="button"
-            >
-              3D View
-            </button>
-          </div>
-        )}
-        <button className={`${s.tbtn} ${s.addBtn}`} onClick={onOpenModal}>+ Add Person</button>
-        <button className={s.tbtn} onClick={onResetView}>Reset View</button>
+          type="button"
+          className={s.mobileMenuBtn}
+          onClick={() => setMobileMenuOpen(prev => !prev)}
+          aria-expanded={mobileMenuOpen}
+          aria-label={mobileMenuOpen ? t('topBar.closeMenu') : t('topBar.openMenu')}
+        >
+          ☰
+        </button>
       </div>
+
+      {mobileMenuOpen && (
+        <>
+          <button className={s.mobileMenuBackdrop} onClick={() => setMobileMenuOpen(false)} aria-label={t('topBar.closeMenu')} />
+          <div className={s.mobileMenu}>
+            <button className={`${s.mobileAction} ${pathMode ? s.mobileActionActive : ''}`} onClick={handlePathToggle}>{t('topBar.findConnection')}</button>
+            <button className={`${s.mobileAction} ${s.mobileActionPrimary}`} onClick={handleOpenAddPerson}>{t('topBar.addPerson')}</button>
+            <button className={s.mobileAction} onClick={handleReset}>{t('topBar.resetView')}</button>
+            {is3DAvailable && (
+              <button className={s.mobileAction} onClick={handleToggleGraph}>
+                {graphMode === '2d' ? t('topBar.switchTo3d') : t('topBar.switchTo2d')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Focus label */}
       {focusedPerson && (
@@ -206,8 +267,8 @@ export default function TopBar({
           >
             {focusedPerson.firstName[0] + focusedPerson.lastName[0]}
           </div>
-          <span>Viewing connections for <strong>{focusedPerson.firstName} {focusedPerson.lastName}</strong></span>
-          <button className={s.focusLabelClose} onClick={clearFocus} title="Clear focus">×</button>
+          <span>{t('topBar.viewingConnectionsFor')} <strong>{focusedPerson.firstName} {focusedPerson.lastName}</strong></span>
+          <button className={s.focusLabelClose} onClick={clearFocus} title={t('topBar.clearFocus')}>×</button>
         </div>
       )}
 
@@ -215,21 +276,21 @@ export default function TopBar({
       {pathMode && (
         <div className={s.pathbar}>
           <div className={s.pathcopy}>
-            <span className={s.pathlabel}>Find Connection</span>
+            <span className={s.pathlabel}>{t('topBar.pathLabel')}</span>
             <span className={s.pathhelp}>{pathInstruction}</span>
           </div>
           <div className={s.pathslots}>
             <div className={pAName ? s.psel : s.pselEmpty}>
-              <span className={s.pathslotLabel}>First person</span>
-              <span>{pAName ? `${pAName.firstName} ${pAName.lastName}` : 'Not selected yet'}</span>
+              <span className={s.pathslotLabel}>{t('topBar.firstPerson')}</span>
+              <span>{pAName ? `${pAName.firstName} ${pAName.lastName}` : t('topBar.notSelectedYet')}</span>
             </div>
             <span className={s.pathsep}>→</span>
             <div className={pBName ? s.psel : s.pselEmpty}>
-              <span className={s.pathslotLabel}>Second person</span>
-              <span>{pBName ? `${pBName.firstName} ${pBName.lastName}` : 'Not selected yet'}</span>
+              <span className={s.pathslotLabel}>{t('topBar.secondPerson')}</span>
+              <span>{pBName ? `${pBName.firstName} ${pBName.lastName}` : t('topBar.notSelectedYet')}</span>
             </div>
           </div>
-          <button className={s.pathclear} onClick={handlePathCancel}>✕ Cancel</button>
+          <button className={s.pathclear} onClick={handlePathCancel}>✕ {t('topBar.cancelPath')}</button>
         </div>
       )}
 
@@ -237,7 +298,7 @@ export default function TopBar({
       {pathBanner && (
         <div className={s.pathbanner}>
           <p className={s.pbtext} dangerouslySetInnerHTML={{ __html: pathBanner }} />
-          <button onClick={() => { setPathBanner(null); sceneRef.current?.__sceneApi?.highlightPath([]); }}>Dismiss</button>
+          <button onClick={() => { setPathBanner(null); sceneRef.current?.__sceneApi?.highlightPath([]); }}>{t('common.dismiss')}</button>
         </div>
       )}
     </>

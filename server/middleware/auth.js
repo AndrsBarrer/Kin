@@ -60,6 +60,34 @@ export async function requireTreeMember(req, res, next) {
   next();
 }
 
+export async function getTreeRole(treeId, userId) {
+  if (!treeId || !userId) return null;
+
+  const { rows } = await pool.query(
+    'SELECT role FROM tree_members WHERE tree_id = $1 AND user_id = $2',
+    [treeId, userId]
+  );
+
+  return rows[0]?.role || null;
+}
+
+export async function getProfilePermissionContext(profileId, userId) {
+  const { rows } = await pool.query(
+    `SELECT p.id, p.tree_id, p.claimed_by, p.first_name, p.last_name,
+            tm.role AS tree_role
+     FROM profiles p
+     LEFT JOIN tree_members tm ON tm.tree_id = p.tree_id AND tm.user_id = $2
+     WHERE p.id = $1 AND p.deleted_at IS NULL`,
+    [profileId, userId || null]
+  );
+
+  return rows[0] || null;
+}
+
+export function canManageClaimedProfile(claimedBy, userId, treeRole) {
+  return !claimedBy || claimedBy === userId || treeRole === 'admin' || treeRole === 'steward';
+}
+
 /**
  * Require one of the specified roles within the current tree.
  * Must be used AFTER requireTreeMember (which sets req.treeRole).

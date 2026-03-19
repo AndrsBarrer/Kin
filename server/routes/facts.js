@@ -35,7 +35,13 @@ router.post('/', requireAuth, async (req, res, next) => {
         structured: valueStructured,
       });
       if (profile.owner_email) {
-        sendProposalNotification(profile.owner_email, req.user.displayName || 'Someone', `${profile.first_name} ${profile.last_name}`, `${factType}: ${value}`);
+        sendProposalNotification(
+          profile.owner_email,
+          req.user.display_name || 'Someone',
+          `${profile.first_name} ${profile.last_name}`,
+          `${factType}: ${value}`,
+          proposal.action_token
+        );
       }
       return res.status(202).json({
         message: 'Profile is claimed. Your edit has been submitted as a proposal.',
@@ -85,7 +91,13 @@ router.put('/:id', requireAuth, async (req, res, next) => {
         structured: valueStructured,
       });
       if (owner_email) {
-        sendProposalNotification(owner_email, req.user.displayName || 'Someone', `${first_name} ${last_name}`, `Updated value: ${value}`);
+        sendProposalNotification(
+          owner_email,
+          req.user.display_name || 'Someone',
+          `${first_name} ${last_name}`,
+          `Updated value: ${value}`,
+          proposal.action_token
+        );
       }
       return res.status(202).json({
         message: 'Edit submitted as a proposal to the profile owner.',

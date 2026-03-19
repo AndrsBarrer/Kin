@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { requireAuth, requireTreeMember } from '../middleware/auth.js';
+import { requireAuth, requireTreeMember, getTreeRole } from '../middleware/auth.js';
 import { logAction } from '../services/audit.js';
 
 const router = Router();
@@ -81,13 +81,26 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
  */
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE relationships SET deleted_at = now()
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING id`,
+    const { rows: existingRows } = await pool.query(
+      `SELECT id, tree_id
+       FROM relationships
+       WHERE id = $1 AND deleted_at IS NULL`,
       [req.params.id]
     );
-    if (rows.length === 0) return res.status(404).json({ error: 'Relationship not found' });
+    if (existingRows.length === 0) return res.status(404).json({ error: 'Relationship not found' });
+
+    const relationship = existingRows[0];
+    const treeRole = await getTreeRole(relationship.tree_id, req.user.id);
+    if (!treeRole) {
+      return res.status(403).json({ error: 'You must be a tree member to delete relationships' });
+    }
+
+    await pool.query(
+      `UPDATE relationships SET deleted_at = now()
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
+
     logAction(req.user.id, 'relationship.delete', 'relationship', req.params.id, null, null);
     res.json({ message: 'Relationship deleted' });
   } catch (err) {

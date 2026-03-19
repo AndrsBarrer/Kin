@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import cryptoRandomString from 'crypto-random-string';
 import pool from '../db/pool.js';
-import { requireAuth, requireTreeMember, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireTreeMember, getProfilePermissionContext, canManageClaimedProfile } from '../middleware/auth.js';
 import { aggregateFacts, addFact } from '../services/facts.js';
 import { applyPrivacy } from '../middleware/privacy.js';
 import { findDuplicates } from '../services/duplicates.js';
@@ -14,6 +14,7 @@ async function getProfileMedia(profileId) {
     `SELECT id, type, url, story_id, is_profile_photo, created_at
      FROM media
      WHERE profile_id = $1
+       AND deleted_at IS NULL
      ORDER BY is_profile_photo DESC, created_at DESC`,
     [profileId]
   );
@@ -239,6 +240,15 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
 router.put('/:id', requireAuth, async (req, res, next) => {
   try {
     const { firstName, lastName, maidenName, isLiving, metadata } = req.body;
+    const profile = await getProfilePermissionContext(req.params.id, req.user.id);
+
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    if (!profile.tree_role) {
+      return res.status(403).json({ error: 'You must be a tree member to update this profile' });
+    }
+    if (!canManageClaimedProfile(profile.claimed_by, req.user.id, profile.tree_role)) {
+      return res.status(403).json({ error: 'Only the profile owner, admin, or steward can update a claimed profile' });
+    }
 
     const { rows } = await pool.query(
       `UPDATE profiles
@@ -266,6 +276,12 @@ router.put('/:id', requireAuth, async (req, res, next) => {
  */
 router.post('/:id/claim', requireAuth, async (req, res, next) => {
   try {
+    const profile = await getProfilePermissionContext(req.params.id, req.user.id);
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
+    if (!profile.tree_role) {
+      return res.status(403).json({ error: 'You must be a tree member to claim this profile' });
+    }
+
     const { rows } = await pool.query(
       `UPDATE profiles SET claimed_by = $2
        WHERE id = $1 AND claimed_by IS NULL AND deleted_at IS NULL

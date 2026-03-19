@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
+import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { people as peopleApi, media as mediaApi } from './api/client';
 import { toast } from './components/Toast';
 import { useTree } from './context/TreeContext';
@@ -52,6 +54,8 @@ function dbRelToFrontend(r) {
 }
 
 function App() {
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { activeTreeId, loading: treeLoading, currentUserId } = useTree();
   const [people, setPeople] = useState([]);
   const [rels, setRels] = useState([]);
@@ -60,29 +64,35 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pathMode, setPathMode] = useState(false);
   const [graphMode, setGraphMode] = useState('2d');
-  const [is3DAvailable, setIs3DAvailable] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia('(min-width: 768px)').matches;
-  });
+  const [is3DAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const sceneRef = useRef(null);
   const tooltipRef = useRef(null);
 
+  const proposalStatus = searchParams.get('proposal');
+  const proposalMessages = {
+    accepted: {
+      tone: 'success',
+      title: t('app.proposalApproved'),
+      body: t('app.proposalApprovedBody'),
+    },
+    rejected: {
+      tone: 'info',
+      title: t('app.proposalRejected'),
+      body: t('app.proposalRejectedBody'),
+    },
+    'not-found': {
+      tone: 'error',
+      title: t('app.proposalUnavailable'),
+      body: t('app.proposalUnavailableBody'),
+    },
+  };
+  const proposalNotice = proposalStatus ? proposalMessages[proposalStatus] : null;
+
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const mediaQuery = window.matchMedia('(min-width: 768px)');
-    const updateAvailability = (event) => {
-      const available = event.matches;
-      setIs3DAvailable(available);
-      if (!available) setGraphMode('2d');
-    };
-
-    setIs3DAvailable(mediaQuery.matches);
-    if (!mediaQuery.matches) setGraphMode('2d');
-
-    mediaQuery.addEventListener('change', updateAvailability);
-    return () => mediaQuery.removeEventListener('change', updateAvailability);
-  }, []);
+    if (!proposalNotice) return;
+    toast(proposalNotice.title, proposalNotice.tone === 'error' ? 'error' : proposalNotice.tone === 'info' ? 'info' : 'success');
+  }, [proposalNotice]);
 
   // ── Load data from API on mount ──────────────────
   useEffect(() => {
@@ -102,10 +112,10 @@ function App() {
       })
       .catch(err => {
         console.error('[Kin] Failed to fetch data:', err);
-        toast('Failed to load data from server', 'error');
+        toast(t('app.failedLoadData'), 'error');
       })
       .finally(() => setLoading(false));
-  }, [activeTreeId, treeLoading]);
+  }, [activeTreeId, treeLoading, t]);
 
   const selectedPerson = selectedId ? people.find(p => p.id === selectedId) : null;
   const selectedPersonWithOwnership = selectedPerson
@@ -163,13 +173,13 @@ function App() {
         url: dataUrl,
         isProfilePhoto: true,
       });
-      toast('Photo saved', 'info');
+      toast(t('app.photoSaved'), 'info');
     } catch (err) {
       console.error('[Kin] Failed to save photo:', err);
       setPeople(prev => prev.map(p => p.id === id ? { ...p, photo: existingPerson?.photo || null } : p));
       throw err;
     }
-  }, [people]);
+  }, [people, t]);
 
   const handleToggleGraphMode = useCallback(() => {
     if (!is3DAvailable) return;
@@ -178,7 +188,7 @@ function App() {
 
   const handleSavePerson = useCallback(async (data) => {
     if (!activeTreeId) {
-      toast('No active tree selected', 'error');
+      toast(t('app.noActiveTree'), 'error');
       return;
     }
 
@@ -186,7 +196,7 @@ function App() {
       const { profile, relationships: createdRels } = await peopleApi.createPerson(activeTreeId, data);
 
       console.log('[Kin] Person created in DB:', profile.id, profile.first_name, profile.last_name);
-      toast(`${profile.first_name} ${profile.last_name} added to the tree!`);
+  toast(t('app.personAdded', { name: `${profile.first_name} ${profile.last_name}` }));
 
       // Add to local state with Three.js vectors
       const focP = focusedId ? people.find(x => x.id === focusedId) : null;
@@ -206,9 +216,9 @@ function App() {
       setTimeout(() => setSelectedId(profile.id), 80);
     } catch (err) {
       console.error('[Kin] Failed to create person:', err);
-      toast(err.message || 'Failed to add person', 'error');
+      toast(err.message || t('app.failedAddPerson'), 'error');
     }
-  }, [activeTreeId, focusedId, people]);
+  }, [activeTreeId, focusedId, people, t]);
 
   const handleRelationshipAdded = useCallback((rel) => {
     setRels(prev => [...prev, dbRelToFrontend(rel)]);
@@ -220,6 +230,12 @@ function App() {
     sceneRef.current?.__sceneApi?.startSim(3000);
   }, []);
 
+  const dismissProposalNotice = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('proposal');
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   return (
     <>
       {loading && (
@@ -229,7 +245,7 @@ function App() {
           background: 'var(--bg)', fontFamily: "'Playfair Display', serif",
           fontSize: 22, color: 'var(--green)',
         }}>
-          Loading family tree…
+          {t('common.loadingFamilyTree')}
         </div>
       )}
       <Scene
@@ -259,6 +275,73 @@ function App() {
         onOpenModal={() => setIsModalOpen(true)}
         sceneRef={sceneRef}
       />
+      {proposalNotice && (
+        <div style={{
+          position: 'fixed',
+          top: 72,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 220,
+          width: 'min(560px, calc(100vw - 24px))',
+          padding: '14px 16px',
+          borderRadius: 12,
+          border: `1px solid ${proposalNotice.tone === 'error' ? 'rgba(192,57,43,0.28)' : proposalNotice.tone === 'info' ? 'rgba(58,114,160,0.24)' : 'rgba(61,124,71,0.24)'}`,
+          background: 'rgba(253, 251, 248, 0.98)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '.08em',
+                textTransform: 'uppercase',
+                color: proposalNotice.tone === 'error' ? '#c0392b' : proposalNotice.tone === 'info' ? '#3A72A0' : '#3D7C47',
+                marginBottom: 4,
+              }}>
+                {t('app.proposalUpdate')}
+              </div>
+              <div style={{
+                fontFamily: "'Playfair Display', serif",
+                fontSize: 22,
+                color: '#2D2A26',
+                marginBottom: 4,
+              }}>
+                {proposalNotice.title}
+              </div>
+              <div style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 14,
+                lineHeight: 1.6,
+                color: '#5E5850',
+              }}>
+                {proposalNotice.body}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissProposalNotice}
+              style={{
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-muted)',
+                borderRadius: 999,
+                width: 32,
+                height: 32,
+                cursor: 'pointer',
+                fontSize: 16,
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+              aria-label="Dismiss proposal notice"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <DetailPanel
         person={selectedPersonWithOwnership}
         people={people}

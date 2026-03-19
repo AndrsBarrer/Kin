@@ -22,8 +22,10 @@ CREATE TABLE users (
   email            TEXT UNIQUE NOT NULL,
   display_name     TEXT,
   avatar_url       TEXT,
+  password_hash    TEXT,
   email_verified_at TIMESTAMPTZ,
   notification_prefs JSONB DEFAULT '{"digest": "weekly"}'::jsonb,
+  last_digest_sent_at TIMESTAMPTZ,
   created_at       TIMESTAMPTZ DEFAULT now()
 );
 
@@ -154,6 +156,8 @@ CREATE TABLE media (
   type             TEXT CHECK (type IN ('photo', 'document')),
   url              TEXT NOT NULL,
   is_profile_photo BOOLEAN DEFAULT false,
+  added_by         UUID REFERENCES users(id),
+  deleted_at       TIMESTAMPTZ,
   created_at       TIMESTAMPTZ DEFAULT now()
 );
 

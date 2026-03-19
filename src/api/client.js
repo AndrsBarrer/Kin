@@ -27,7 +27,7 @@ async function request(path, options = {}) {
 
 // ── Auth ────────────────────────────────────────────
 export const auth = {
-  sendMagicLink: (email) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email }) }),
+  sendMagicLink: ({ email, displayName, claimToken } = {}) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email, displayName, claimToken }) }),
   verify: (token) => request('/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -45,6 +45,7 @@ export const trees = {
   list: () => request('/trees'),
   get: (id) => request(`/trees/${id}`),
   create: (data) => request('/trees', { method: 'POST', body: JSON.stringify(data) }),
+  remove: (id) => request(`/trees/${id}`, { method: 'DELETE' }),
 };
 
 // ── Profiles ────────────────────────────────────────
@@ -118,6 +119,8 @@ export const join = {
   /** Claim a profile via invite token + create account with email & password */
   claim: (token, email, displayName, password) =>
     request('/join/claim', { method: 'POST', body: JSON.stringify({ token, email, displayName, password }) }),
+  claimAuthenticated: (token) =>
+    request('/join/claim-authenticated', { method: 'POST', body: JSON.stringify({ token }) }),
 };
 
 // ── Facts ───────────────────────────────────────────

@@ -11,10 +11,10 @@ const router = Router();
  */
 router.post('/magic-link', async (req, res, next) => {
   try {
-    const { email } = req.body;
+    const { email, displayName, claimToken } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    const { magicLink } = await createMagicLink(email);
+    const { magicLink } = await createMagicLink(email, { displayName, claimToken });
 
     // In dev, log the link. In prod, send via email service.
     if (process.env.NODE_ENV !== 'production') {

@@ -30,15 +30,18 @@ const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
  * Create or find user by email, generate a magic-link token.
  * Returns { user, token, magicLink }.
  */
-export async function createMagicLink(email) {
+export async function createMagicLink(email, options = {}) {
   const normalizedEmail = email.toLowerCase().trim();
+  const normalizedDisplayName = options.displayName?.trim() || null;
 
   // Upsert user
   const { rows: [user] } = await pool.query(
-    `INSERT INTO users (email) VALUES ($1)
-     ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+    `INSERT INTO users (email, display_name) VALUES ($1, $2)
+     ON CONFLICT (email) DO UPDATE SET
+       email = EXCLUDED.email,
+       display_name = COALESCE(NULLIF($2, ''), users.display_name)
      RETURNING *`,
-    [normalizedEmail]
+    [normalizedEmail, normalizedDisplayName]
   );
 
   // Generate token
@@ -52,7 +55,9 @@ export async function createMagicLink(email) {
   );
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const magicLink = `${frontendUrl}/auth/verify?token=${token}`;
+  const params = new URLSearchParams({ token });
+  if (options.claimToken) params.set('inviteToken', options.claimToken);
+  const magicLink = `${frontendUrl}/auth/verify?${params.toString()}`;
 
   return { user, token, magicLink };
 }

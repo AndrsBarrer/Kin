@@ -1,6 +1,6 @@
 .topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 18px;
+  height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 14px;
   background: var(--surface); border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
@@ -15,7 +15,7 @@
 .sep {
   width: 1px; height: 22px; background: var(--border); flex-shrink: 0; margin: 0 2px;
 }
-.searchWrap { flex: 1; max-width: 300px; position: relative; }
+.searchWrap { flex: 1; min-width: 120px; max-width: 260px; position: relative; }
 .searchInput {
   width: 100%; padding: 7px 32px 7px 34px;
   background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
@@ -50,7 +50,7 @@
 .srName { font-size: 14px; font-weight: 500; }
 .srDates { font-size: 12px; color: var(--text-muted); }
 .tbtn {
-  padding: 7px 14px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 7px 12px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
   font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; color: var(--text-dim);
   cursor: pointer; transition: all .15s; white-space: nowrap;
 }
@@ -58,6 +58,7 @@
 .pathBtnActive { background: var(--green); border-color: var(--green); color: #fff; }
 .addBtn { background: var(--green); border-color: var(--green); color: #fff; }
 .addBtn:hover { background: var(--green-light); border-color: var(--green-light); }
+.desktopActions { display: inline-flex; align-items: center; gap: 8px; }
 .viewToggle {
   display: inline-flex; align-items: center; padding: 2px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface2);
@@ -69,6 +70,20 @@
 }
 .viewBtnActive {
   background: var(--surface); color: var(--green); box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.mobileMenuBtn {
+  display: none; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text); font-size: 18px; line-height: 1;
+  cursor: pointer; flex-shrink: 0;
+}
+.mobileMenuBackdrop,
+.mobileMenu {
+  display: none;
+}
+.mobileAction,
+.mobileActionPrimary,
+.mobileActionActive {
+  display: none;
 }
 
 /* Focus label */
@@ -151,10 +166,34 @@
   .topbar { padding: 0 10px; gap: 6px; }
   .logoText { display: none; }
   .sep { display: none; }
-  .searchWrap { max-width: 160px; }
+  .searchWrap { min-width: 0; max-width: none; }
   .searchInput { font-size: 13px; padding: 6px 28px 6px 30px; }
-  .tbtn { padding: 6px 10px; font-size: 12px; }
-  .viewToggle { display: none; }
+  .desktopActions { display: none; }
+  .mobileMenuBtn { display: inline-flex; align-items: center; justify-content: center; }
+  .mobileMenuBackdrop {
+    display: block; position: fixed; inset: 56px 0 0; z-index: 115;
+    border: none; background: rgba(45, 42, 38, 0.16);
+  }
+  .mobileMenu {
+    display: grid; position: fixed; top: 64px; left: 10px; right: 10px; z-index: 120;
+    grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px;
+    background: rgba(253, 251, 248, 0.98); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: 0 14px 40px rgba(45,42,38,0.16); backdrop-filter: blur(10px);
+  }
+  .mobileAction,
+  .mobileActionPrimary,
+  .mobileActionActive {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 42px;
+    padding: 0 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-family: 'Inter', sans-serif;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .mobileActionPrimary {
+    background: var(--green); border-color: var(--green); color: #fff;
+  }
+  .mobileActionActive {
+    background: var(--green-bg); border-color: rgba(61,124,71,0.35); color: var(--green);
+  }
   .pathbar {
     top: 60px; min-width: calc(100vw - 16px); padding: 10px; gap: 10px;
     flex-direction: column; align-items: stretch;

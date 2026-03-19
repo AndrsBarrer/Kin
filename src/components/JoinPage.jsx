@@ -1,8 +1,10 @@
  import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { join, setToken } from '../api/client';
+import { auth, join } from '../api/client';
 
 export default function JoinPage() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -10,14 +12,12 @@ export default function JoinPage() {
   const [person, setPerson] = useState(null);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setError('No invite token provided.');
+      setError(t('joinPage.noToken'));
       return;
     }
     join.verify(token)
@@ -29,26 +29,27 @@ export default function JoinPage() {
       })
       .catch(err => {
         setStatus('error');
-        setError(err.message || 'Invalid or expired invite token.');
+        setError(err.message || t('joinPage.invalidToken'));
         console.error('[Kin] Token verification failed:', err.message);
       });
-  }, [token]);
+  }, [token, t]);
 
   const handleClaim = async (e) => {
     e.preventDefault();
-    if (!email.trim()) { setError('Email is required.'); return; }
-    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
+    if (!email.trim()) { setError(t('joinPage.emailRequired')); return; }
     setStatus('claiming');
     setError('');
     try {
-      const result = await join.claim(token, email.trim(), displayName.trim(), password);
-      setToken(result.token);
+      await auth.sendMagicLink({
+        email: email.trim(),
+        displayName: displayName.trim(),
+        claimToken: token,
+      });
       setStatus('done');
-      console.log('[Kin] Profile claimed — user account created, session active.');
+      console.log('[Kin] Magic link sent for profile claim.');
     } catch (err) {
       setStatus('found');
-      setError(err.message || 'Failed to create account.');
+      setError(err.message || t('joinPage.claimFailed'));
       console.error('[Kin] Claim failed:', err.message);
     }
   };
@@ -58,19 +59,19 @@ export default function JoinPage() {
       <div style={styles.card}>
         <h1 style={styles.logo}>Kin</h1>
 
-        {status === 'loading' && <p style={styles.subtle}>Verifying invite…</p>}
+        {status === 'loading' && <p style={styles.subtle}>{t('joinPage.verifyingInvite')}</p>}
 
         {status === 'error' && (
           <div>
             <p style={styles.errorText}>{error}</p>
-            <a href="/" style={styles.link}>← Back to family tree</a>
+            <a href="/" style={styles.link}>← {t('joinPage.backToTree')}</a>
           </div>
         )}
 
         {status === 'found' && person && (
           <form onSubmit={handleClaim}>
             <p style={styles.greeting}>
-              You've been invited to claim the profile for
+              {t('joinPage.invitedToClaim')}
             </p>
             <h2 style={styles.personName}>{person.first_name} {person.last_name}</h2>
             {person.maiden_name && (
@@ -79,63 +80,43 @@ export default function JoinPage() {
 
             <div style={styles.divider} />
 
-            <p style={styles.label}>Create your account to manage this profile:</p>
+            <p style={styles.label}>{t('joinPage.createAccountLabel')}</p>
 
-            <label style={styles.fieldLabel}>Display Name</label>
+            <label style={styles.fieldLabel}>{t('joinPage.displayName')}</label>
             <input
               style={styles.input}
               type="text"
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}
-              placeholder="Your name"
+              placeholder={t('joinPage.yourName')}
             />
 
-            <label style={styles.fieldLabel}>Email Address *</label>
+            <label style={styles.fieldLabel}>{t('joinPage.email')} *</label>
             <input
               style={styles.input}
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder={t('joinPage.yourEmail')}
               required
             />
 
-            <label style={styles.fieldLabel}>Create Password *</label>
-            <input
-              style={styles.input}
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              minLength={8}
-              required
-            />
-
-            <label style={styles.fieldLabel}>Confirm Password *</label>
-            <input
-              style={styles.input}
-              type="password"
-              value={confirmPassword}
-              onChange={e => setConfirmPassword(e.target.value)}
-              placeholder="Repeat your password"
-              minLength={8}
-              required
-            />
+            <p style={styles.subtle}>{t('joinPage.magicLinkHint')}</p>
 
             {error && <p style={styles.errorText}>{error}</p>}
 
             <button type="submit" style={styles.btn}>
-              Create Account & Claim Profile
+              {t('joinPage.createAccountClaim')}
             </button>
           </form>
         )}
 
-        {status === 'claiming' && <p style={styles.subtle}>Creating your account…</p>}
+        {status === 'claiming' && <p style={styles.subtle}>{t('joinPage.creatingAccount')}</p>}
 
         {status === 'done' && (
           <div>
-            <p style={styles.successText}>Account created! Your profile has been claimed.</p>
-            <a href="/" style={styles.btn}>Open Family Tree →</a>
+            <p style={styles.successText}>{t('joinPage.accountCreated')}</p>
+            <p style={styles.subtle}>{t('joinPage.openEmail')}</p>
           </div>
         )}
       </div>
@@ -190,6 +171,7 @@ const styles = {
     color: '#9A948E',
     textAlign: 'center',
     marginBottom: 12,
+    lineHeight: 1.6,
   },
   divider: {
     height: 1,

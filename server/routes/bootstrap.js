@@ -26,6 +26,17 @@ router.post('/', async (req, res, next) => {
       }
     }
 
+    if (!req.user) {
+      const { rows: existingTrees } = await pool.query(
+        `SELECT id FROM trees WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1`
+      );
+      if (existingTrees.length > 0) {
+        return res.status(409).json({
+          error: 'Bootstrap is only available before the first tree is created',
+        });
+      }
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

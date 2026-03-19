@@ -24,6 +24,7 @@ db.exec(`
     password_hash    TEXT,
     email_verified_at TEXT,
     notification_prefs TEXT DEFAULT '{"digest":"weekly"}',
+    last_digest_sent_at TEXT,
     created_at       TEXT DEFAULT (now())
   );
 
@@ -118,6 +119,8 @@ db.exec(`
     type             TEXT CHECK(type IN ('photo','document')),
     url              TEXT NOT NULL,
     is_profile_photo INTEGER DEFAULT 0,
+    added_by         TEXT REFERENCES users(id),
+    deleted_at       TEXT,
     created_at       TEXT DEFAULT (now())
   );
 
@@ -164,6 +167,24 @@ try {
   // Column already exists — ignore
 }
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN last_digest_sent_at TEXT`);
+} catch (_) {
+  // Column already exists — ignore
+}
+
+try {
+  db.exec(`ALTER TABLE media ADD COLUMN added_by TEXT`);
+} catch (_) {
+  // Column already exists — ignore
+}
+
+try {
+  db.exec(`ALTER TABLE media ADD COLUMN deleted_at TEXT`);
+} catch (_) {
+  // Column already exists — ignore
+}
+
 console.log('[Kin DB] SQLite database ready at', DB_PATH);
 
 // ── Query helpers ───────────────────────────────────
@@ -186,6 +207,7 @@ function convertParams(sql, params) {
 function prepareParams(params) {
   return params.map(p => {
     if (typeof p === 'boolean') return p ? 1 : 0;
+    if (p instanceof Date) return p.toISOString();
     if (p !== null && p !== undefined && typeof p === 'object' && !Array.isArray(p) && !(p instanceof Date)) {
       return JSON.stringify(p);
     }
