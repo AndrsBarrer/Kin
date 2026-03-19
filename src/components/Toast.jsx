@@ -27,12 +27,12 @@ export default function Toast() {
         <div key={t.id} style={{
           padding: '10px 18px',
           borderRadius: 8,
-          fontFamily: "'Crimson Pro', sans-serif",
-          fontSize: 14,
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 13,
           fontWeight: 500,
           color: '#fff',
-          background: t.type === 'error' ? '#c0392b' : t.type === 'info' ? '#2980b9' : '#27ae60',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          background: t.type === 'error' ? '#c0392b' : t.type === 'info' ? '#3A72A0' : '#3D7C47',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           animation: 'toast-in .3s ease',
           maxWidth: 360,
         }}>

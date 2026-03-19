@@ -41,6 +41,25 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
     if (!type || !profileA || !profileB) {
       return res.status(400).json({ error: 'type, profileA, and profileB are required' });
     }
+    if (profileA === profileB) {
+      return res.status(400).json({ error: 'A relationship requires two different people' });
+    }
+
+    if (type === 'marriage') {
+      const { rows: existingMarriages } = await pool.query(
+        `SELECT id, profile_a, profile_b
+         FROM relationships
+         WHERE tree_id = $1
+           AND type = 'marriage'
+           AND deleted_at IS NULL
+           AND ($2 IN (profile_a, profile_b) OR $3 IN (profile_a, profile_b))`,
+        [treeId, profileA, profileB]
+      );
+
+      if (existingMarriages.length > 0) {
+        return res.status(409).json({ error: 'One of these people is already linked to a spouse or partner' });
+      }
+    }
 
     const { rows: [rel] } = await pool.query(
       `INSERT INTO relationships (tree_id, type, profile_a, profile_b, role_a, role_b, start_year, end_year)

@@ -62,12 +62,12 @@ router.post('/', requireAuth, async (req, res, next) => {
     const { rows: [story] } = await pool.query(
       `INSERT INTO stories (profile_id, title, body, written_by)
        VALUES ($1, $2, $3, $4)
-       RETURNING *`,
+       RETURNING id, profile_id, title, body, written_by, is_featured, created_at`,
       [profileId, title, body, req.user.id]
     );
 
     logAction(req.user.id, 'story.create', 'story', story.id, null, { profileId, title });
-    res.status(201).json(story);
+    res.status(201).json({ ...story, author_name: req.user.display_name || null });
   } catch (err) {
     next(err);
   }

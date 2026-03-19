@@ -13,6 +13,7 @@ import graphRoutes from './routes/graph.js';
 import joinRoutes from './routes/join.js';
 import bootstrapRoutes from './routes/bootstrap.js';
 import storyRoutes from './routes/stories.js';
+import mediaRoutes from './routes/media.js';
 import { authenticate } from './middleware/auth.js';
 import { startDigestScheduler } from './services/digest.js';
 
@@ -22,7 +23,7 @@ const PORT = process.env.PORT || 3001;
 // ── Global middleware ───────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 // ── Auth context (sets req.user if valid session) ───
 app.use(authenticate);
@@ -38,6 +39,7 @@ app.use('/api/graph', graphRoutes);
 app.use('/api/join', joinRoutes);
 app.use('/api/bootstrap', bootstrapRoutes);
 app.use('/api/stories', storyRoutes);
+app.use('/api/media', mediaRoutes);
 
 // ── Health check ────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

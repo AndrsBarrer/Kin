@@ -3,27 +3,43 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #070810;
-  --surface: #0f1219;
-  --surface2: #161b26;
-  --border: #1e2636;
-  --border-strong: #2a3448;
-  --gold: #c9973a;
-  --gold-light: #d4a94f;
-  --gold-bg: rgba(201,151,58,0.12);
-  --accent: #4a7fff;
-  --accent-bg: rgba(74,127,255,0.10);
-  --brown: #8a7350;
-  --brown-light: #a08a60;
-  --text: #e8e4df;
-  --text-dim: #9a9490;
-  --text-muted: #6a6460;
-  --tag-parent-bg: rgba(201,151,58,0.15); --tag-parent: #d4a94f;
-  --tag-marry-bg: rgba(74,127,255,0.12);  --tag-marry: #6a9bff;
-  --tag-child-bg: rgba(160,100,220,0.12);  --tag-child: #b080e0;
+  /* Heritage Palette — earthy, organic, parchment-inspired */
+  --bg: #F5F1EB;
+  --surface: #FDFBF8;
+  --surface2: #F0EBE2;
+  --border: #DCD5C8;
+  --border-strong: #C4B9A5;
+
+  /* Primary Green — Ancestry "leaf" action color */
+  --green: #3D7C47;
+  --green-light: #4F9A58;
+  --green-bg: rgba(61,124,71,0.08);
+
+  /* Accent blue & warm brown */
+  --accent: #3A72A0;
+  --accent-bg: rgba(58,114,160,0.08);
+  --brown: #8A7350;
+  --brown-light: #A08A60;
+
+  /* Deep charcoal text — softer than pure black */
+  --text: #2D2A26;
+  --text-dim: #5E5850;
+  --text-muted: #9A948E;
+
+  /* Relationship tag colors */
+  --tag-parent-bg: rgba(61,124,71,0.10);  --tag-parent: #3D7C47;
+  --tag-marry-bg: rgba(58,114,160,0.10);  --tag-marry: #3A72A0;
+  --tag-child-bg: rgba(140,80,180,0.10);  --tag-child: #8B60B0;
+
+  /* Layout */
   --panel: 340px;
   --radius: 8px;
   --radius-lg: 12px;
+
+  /* Legacy aliases for compatibility */
+  --gold: var(--green);
+  --gold-light: var(--green-light);
+  --gold-bg: var(--green-bg);
 }
 
 html, body, #root {
@@ -32,8 +48,10 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Crimson Pro', 'Inter', sans-serif;
+  font-family: 'Inter', 'Crimson Pro', sans-serif;
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @keyframes toast-in {

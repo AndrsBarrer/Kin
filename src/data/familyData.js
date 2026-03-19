@@ -1,8 +1,8 @@
 export const BRANCH = {
-  paternal: { hex: '#4a7fff', css: 'var(--accent)', bg: 'rgba(74,127,255,0.12)', three: 0x4a7fff, label: 'Paternal' },
-  maternal: { hex: '#c9973a', css: 'var(--gold)', bg: 'rgba(201,151,58,0.12)', three: 0xc9973a, label: 'Maternal' },
-  sibling:  { hex: '#b080e0', css: '#b080e0', bg: 'rgba(160,100,220,0.12)', three: 0xb080e0, label: 'Sibling branch' },
-  married:  { hex: '#5ab88a', css: '#5ab88a', bg: 'rgba(90,184,138,0.12)', three: 0x5ab88a, label: 'Married in' },
+  paternal: { hex: '#2F6B3E', css: 'var(--green)', bg: 'rgba(47,107,62,0.10)', three: 0x2F6B3E, label: 'Paternal' },
+  maternal: { hex: '#1A5C8A', css: 'var(--accent)', bg: 'rgba(26,92,138,0.10)', three: 0x1A5C8A, label: 'Maternal' },
+  sibling:  { hex: '#7A3A8A', css: '#7A3A8A', bg: 'rgba(122,58,138,0.10)', three: 0x7A3A8A, label: 'Sibling branch' },
+  married:  { hex: '#8A5A1A', css: '#8A5A1A', bg: 'rgba(138,90,26,0.10)', three: 0x8A5A1A, label: 'Married in' },
 };
 
 // Data is now fetched from the API. These arrays are empty by default.

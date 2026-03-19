@@ -9,6 +9,23 @@ import { logAction } from '../services/audit.js';
 
 const router = Router();
 
+async function getProfileMedia(profileId) {
+  const { rows } = await pool.query(
+    `SELECT id, type, url, story_id, is_profile_photo, created_at
+     FROM media
+     WHERE profile_id = $1
+     ORDER BY is_profile_photo DESC, created_at DESC`,
+    [profileId]
+  );
+  return rows;
+}
+
+function getProfilePhotoUrl(mediaRows) {
+  return mediaRows.find((item) => item.type === 'photo' && item.is_profile_photo)?.url
+    || mediaRows.find((item) => item.type === 'photo')?.url
+    || null;
+}
+
 /**
  * GET /api/profiles/duplicates?treeId=...&firstName=...&lastName=...
  * Live duplicate check endpoint for the add person form.
@@ -28,8 +45,8 @@ router.get('/duplicates', requireAuth, async (req, res, next) => {
 
 /**
  * GET /api/profiles/public/:slug
- * Public profile view — returns only public-tier facts for non-living profiles,
- * or basic name info for living profiles.
+ * Public profile view — returns public-tier facts plus any shared stories/media
+ * for profiles that have a public slug.
  */
 router.get('/public/:slug', async (req, res, next) => {
   try {
@@ -41,14 +58,26 @@ router.get('/public/:slug', async (req, res, next) => {
 
     const profile = rows[0];
     const allFacts = await aggregateFacts(profile.id, ['public']);
-
+    const media = await getProfileMedia(profile.id);
+    const stories = (await pool.query(
+      `SELECT s.id, s.title, s.body, s.created_at, u.display_name AS author_name
+       FROM stories s
+       LEFT JOIN users u ON u.id = s.written_by
+       WHERE s.profile_id = $1 AND s.deleted_at IS NULL
+       ORDER BY s.created_at DESC`,
+      [profile.id]
+    )).rows;
     res.json({
+      id: profile.id,
       firstName: profile.first_name,
       lastName: profile.last_name,
       maidenName: profile.maiden_name,
       isLiving: profile.is_living,
       facts: allFacts,
       publicSlug: profile.public_slug,
+      profilePhotoUrl: getProfilePhotoUrl(media),
+      stories,
+      media,
     });
   } catch (err) {
     next(err);
@@ -88,7 +117,13 @@ router.get('/', async (req, res, next) => {
       profiles.map(async (p) => {
         const allFacts = await aggregateFacts(p.id);
         const visibleFacts = applyPrivacy(req, p, allFacts);
-        return { ...p, facts: visibleFacts };
+        const media = await getProfileMedia(p.id);
+        return {
+          ...p,
+          facts: visibleFacts,
+          media,
+          profile_photo_url: getProfilePhotoUrl(media),
+        };
       })
     );
 
@@ -123,8 +158,9 @@ router.get('/:id', async (req, res, next) => {
 
     const allFacts = await aggregateFacts(profile.id);
     const visibleFacts = applyPrivacy(req, profile, allFacts);
+    const media = await getProfileMedia(profile.id);
 
-    res.json({ ...profile, facts: visibleFacts });
+    res.json({ ...profile, facts: visibleFacts, media, profile_photo_url: getProfilePhotoUrl(media) });
   } catch (err) {
     next(err);
   }
@@ -187,7 +223,10 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
     logAction(req.user.id, 'profile.create', 'profile', profile.id, null, { firstName, lastName });
     console.log(`[Kin] Profile created: ${firstName} ${lastName} (${profile.id}) — invite token generated`);
 
-    res.status(201).json(profile);
+    const allFacts = await aggregateFacts(profile.id);
+    const visibleFacts = applyPrivacy(req, profile, allFacts);
+
+    res.status(201).json({ ...profile, facts: visibleFacts });
   } catch (err) {
     next(err);
   }

@@ -58,6 +58,16 @@ export const profiles = {
     request(`/profiles/duplicates?treeId=${encodeURIComponent(treeId)}&firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}`),
 };
 
+export const media = {
+  list: ({ profileId, treeId } = {}) => {
+    const params = new URLSearchParams();
+    if (profileId) params.set('profileId', profileId);
+    if (treeId) params.set('treeId', treeId);
+    return request(`/media?${params.toString()}`);
+  },
+  create: (data) => request('/media', { method: 'POST', body: JSON.stringify(data) }),
+};
+
 // ── People (local-first CRUD — wraps profiles + relationships) ──
 export const people = {
   /** Fetch all people + rels for a tree and normalize to frontend shape */
@@ -76,22 +86,15 @@ export const people = {
       lastName: data.lastName,
       maidenName: data.maiden || null,
       isLiving: data.death ? false : true,
-      metadata: { branch: data.branch },
+      metadata: {
+        branch: data.branch,
+        gender: data.gender,
+        birth: data.birth,
+        death: data.death,
+        bio: data.bio,
+      },
       skipDuplicateCheck: true,
     });
-
-    // EAV: write biography fields as individual fact rows
-    const factEntries = [
-      ['gender', data.gender],
-      ['birth_year', data.birth ? String(data.birth) : null],
-      ['death_year', data.death ? String(data.death) : null],
-      ['biography', data.bio],
-    ];
-    for (const [factType, value] of factEntries) {
-      if (value) {
-        await facts.add({ profileId: profile.id, factType, value, privacy: 'family' });
-      }
-    }
 
     const createdRels = [];
     const relPayloads = [];
