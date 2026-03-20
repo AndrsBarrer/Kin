@@ -56,12 +56,13 @@ function dbRelToFrontend(r) {
 function App() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { activeTreeId, loading: treeLoading, currentUserId } = useTree();
+  const { activeTreeId, treeList, loading: treeLoading, currentUserId } = useTree();
   const [people, setPeople] = useState([]);
   const [rels, setRels] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [focusedId, setFocusedId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathMode, setPathMode] = useState(false);
   const [graphMode, setGraphMode] = useState('2d');
   const [is3DAvailable] = useState(true);
@@ -70,6 +71,8 @@ function App() {
   const tooltipRef = useRef(null);
 
   const proposalStatus = searchParams.get('proposal');
+  const resolvedActiveTreeId = activeTreeId || treeList[0]?.id || null;
+  const canAddPeople = !treeLoading && Boolean(resolvedActiveTreeId);
   const proposalMessages = {
     accepted: {
       tone: 'success',
@@ -97,14 +100,14 @@ function App() {
   // ── Load data from API on mount ──────────────────
   useEffect(() => {
     if (treeLoading) return; // wait for TreeContext bootstrap
-    if (!activeTreeId) {
+    if (!resolvedActiveTreeId) {
       console.log('[Kin] No active tree set. Waiting for TreeProvider to resolve…');
       setLoading(false);
       return;
     }
     setLoading(true);
-    console.log('[Kin] Fetching data for tree:', activeTreeId);
-    peopleApi.fetchAll(activeTreeId)
+    console.log('[Kin] Fetching data for tree:', resolvedActiveTreeId);
+    peopleApi.fetchAll(resolvedActiveTreeId)
       .then(({ profiles, relationships }) => {
         setPeople(profiles.map(dbToFrontend));
         setRels(relationships.map(dbRelToFrontend));
@@ -115,7 +118,7 @@ function App() {
         toast(t('app.failedLoadData'), 'error');
       })
       .finally(() => setLoading(false));
-  }, [activeTreeId, treeLoading, t]);
+  }, [resolvedActiveTreeId, treeLoading, t]);
 
   const selectedPerson = selectedId ? people.find(p => p.id === selectedId) : null;
   const selectedPersonWithOwnership = selectedPerson
@@ -187,13 +190,13 @@ function App() {
   }, [is3DAvailable]);
 
   const handleSavePerson = useCallback(async (data) => {
-    if (!activeTreeId) {
+    if (!resolvedActiveTreeId) {
       toast(t('app.noActiveTree'), 'error');
       return;
     }
 
     try {
-      const { profile, relationships: createdRels } = await peopleApi.createPerson(activeTreeId, data);
+      const { profile, relationships: createdRels } = await peopleApi.createPerson(resolvedActiveTreeId, data);
 
       console.log('[Kin] Person created in DB:', profile.id, profile.first_name, profile.last_name);
   toast(t('app.personAdded', { name: `${profile.first_name} ${profile.last_name}` }));
@@ -218,7 +221,7 @@ function App() {
       console.error('[Kin] Failed to create person:', err);
       toast(err.message || t('app.failedAddPerson'), 'error');
     }
-  }, [activeTreeId, focusedId, people, t]);
+  }, [focusedId, people, resolvedActiveTreeId, t]);
 
   const handleRelationshipAdded = useCallback((rel) => {
     setRels(prev => [...prev, dbRelToFrontend(rel)]);
@@ -267,12 +270,15 @@ function App() {
         pathMode={pathMode}
         graphMode={graphMode}
         is3DAvailable={is3DAvailable}
+        canOpenModal={canAddPeople}
+        mobileMenuOpen={mobileMenuOpen}
+        onMobileMenuOpenChange={setMobileMenuOpen}
         onSetFocus={handleSetFocus}
         onOpenPanel={handleOpenPanel}
         onTogglePathMode={handleTogglePathMode}
         onToggleGraphMode={handleToggleGraphMode}
         onResetView={handleResetView}
-        onOpenModal={() => setIsModalOpen(true)}
+        onOpenModal={() => canAddPeople && setIsModalOpen(true)}
         sceneRef={sceneRef}
       />
       {proposalNotice && (
@@ -353,9 +359,11 @@ function App() {
         onRelationshipAdded={handleRelationshipAdded}
         onRelationshipRemoved={handleRelationshipRemoved}
       />
-      <Legend people={people} rels={rels} tooltipRef={tooltipRef} />
+      <Legend people={people} rels={rels} tooltipRef={tooltipRef} hidden={mobileMenuOpen} />
       {isModalOpen && (
         <AddPersonModal
+          activeTreeId={resolvedActiveTreeId}
+          treeLoading={treeLoading}
           people={people}
           onSave={handleSavePerson}
           onClose={() => setIsModalOpen(false)}

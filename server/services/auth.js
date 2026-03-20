@@ -25,6 +25,7 @@ export async function verifyPassword(password, stored) {
 }
 
 const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Create or find user by email, generate a magic-link token.
@@ -95,25 +96,38 @@ export async function verifyMagicToken(token) {
  * but for now we use a simple token → user_id lookup.
  */
 
-const sessionTokens = new Map(); // In-memory for dev; swap for Redis/DB in prod
-
 export function createSessionToken(userId) {
   const token = cryptoRandomString({ length: 64, type: 'url-safe' });
-  sessionTokens.set(token, { userId, createdAt: Date.now() });
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+  pool.query(
+    `INSERT INTO session_tokens (token, user_id, expires_at)
+     VALUES ($1, $2, $3)`,
+    [token, userId, expiresAt]
+  );
+
   return token;
 }
 
 export function getUserIdFromSession(token) {
-  const session = sessionTokens.get(token);
+  const { rows } = pool.query(
+    `SELECT user_id, expires_at
+     FROM session_tokens
+     WHERE token = $1`,
+    [token]
+  );
+
+  const session = rows[0];
   if (!session) return null;
-  // 7 day expiry
-  if (Date.now() - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
-    sessionTokens.delete(token);
+
+  if (Date.parse(session.expires_at) <= Date.now()) {
+    pool.query('DELETE FROM session_tokens WHERE token = $1', [token]);
     return null;
   }
-  return session.userId;
+
+  return session.user_id;
 }
 
 export function destroySession(token) {
-  sessionTokens.delete(token);
+  pool.query('DELETE FROM session_tokens WHERE token = $1', [token]);
 }

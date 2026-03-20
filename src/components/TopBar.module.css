@@ -7,10 +7,11 @@
 .logo {
   display: flex; align-items: center; gap: 8px; text-decoration: none;
 }
-.logoLeaf { width: 26px; height: 26px; }
-.logoText {
-  font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 600;
-  color: var(--green); letter-spacing: -.01em;
+.logoImage {
+  display: block;
+  width: auto;
+  height: 38px;
+  object-fit: contain;
 }
 .sep {
   width: 1px; height: 22px; background: var(--border); flex-shrink: 0; margin: 0 2px;
@@ -55,6 +56,14 @@
   cursor: pointer; transition: all .15s; white-space: nowrap;
 }
 .tbtn:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface2); }
+.tbtn:disabled,
+.mobileAction:disabled,
+.mobileActionPrimary:disabled,
+.mobileActionActive:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .pathBtnActive { background: var(--green); border-color: var(--green); color: #fff; }
 .addBtn { background: var(--green); border-color: var(--green); color: #fff; }
 .addBtn:hover { background: var(--green-light); border-color: var(--green-light); }
@@ -164,7 +173,7 @@
 /* ── Mobile ── */
 @media (max-width: 768px) {
   .topbar { padding: 0 10px; gap: 6px; }
-  .logoText { display: none; }
+  .logoImage { height: 32px; }
   .sep { display: none; }
   .searchWrap { min-width: 0; max-width: none; }
   .searchInput { font-size: 13px; padding: 6px 28px 6px 30px; }

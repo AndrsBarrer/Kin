@@ -1,10 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles as profilesApi } from '../api/client';
-import { useTree } from '../context/TreeContext';
 import s from './AddPersonModal.module.css';
 
-export default function AddPersonModal({ people, onSave, onClose }) {
+const MOBILE_BREAKPOINT = '(max-width: 768px)';
+
+function sanitizeYear(value) {
+  return value.replace(/\D/g, '').slice(0, 4);
+}
+
+export default function AddPersonModal({ activeTreeId, treeLoading, people, onSave, onClose }) {
   const { t } = useTranslation();
   const [fn, setFn] = useState('');
   const [ln, setLn] = useState('');
@@ -19,8 +24,111 @@ export default function AddPersonModal({ people, onSave, onClose }) {
   const [sp, setSp] = useState('');
   const [saving, setSaving] = useState(false);
   const [dupes, setDupes] = useState([]);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_BREAKPOINT).matches
+  );
+  const [mobileViewportHeight, setMobileViewportHeight] = useState(null);
   const dupeTimer = useRef(null);
-  const { activeTreeId } = useTree();
+  const modalRef = useRef(null);
+  const canSubmit = Boolean(activeTreeId) && !treeLoading;
+  const hasRelationshipStep = people.length > 0;
+  const mobileSteps = [
+    {
+      key: 'identity',
+      title: t('addPersonModal.steps.identity.title'),
+      description: t('addPersonModal.steps.identity.description'),
+    },
+    {
+      key: 'details',
+      title: t('addPersonModal.steps.details.title'),
+      description: t('addPersonModal.steps.details.description'),
+    },
+    ...(hasRelationshipStep ? [{
+      key: 'relationships',
+      title: t('addPersonModal.steps.relationships.title'),
+      description: t('addPersonModal.steps.relationships.description'),
+    }] : []),
+  ];
+  const activeStep = mobileSteps[Math.min(stepIndex, mobileSteps.length - 1)];
+  const isLastStep = stepIndex === mobileSteps.length - 1;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT);
+    const syncViewport = () => setIsMobile(mediaQuery.matches);
+
+    syncViewport();
+    mediaQuery.addEventListener('change', syncViewport);
+    return () => mediaQuery.removeEventListener('change', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || typeof window === 'undefined') {
+      setMobileViewportHeight(null);
+      return undefined;
+    }
+
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      setMobileViewportHeight(window.innerHeight);
+      return undefined;
+    }
+
+    const syncHeight = () => setMobileViewportHeight(viewport.height);
+
+    syncHeight();
+    viewport.addEventListener('resize', syncHeight);
+    viewport.addEventListener('scroll', syncHeight);
+
+    return () => {
+      viewport.removeEventListener('resize', syncHeight);
+      viewport.removeEventListener('scroll', syncHeight);
+    };
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+
+    const { body, documentElement } = document;
+    const scrollY = window.scrollY;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPosition = body.style.position;
+    const previousBodyTop = body.style.top;
+    const previousBodyLeft = body.style.left;
+    const previousBodyRight = body.style.right;
+    const previousBodyWidth = body.style.width;
+    const previousHtmlOverflow = documentElement.style.overflow;
+
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+    documentElement.style.overflow = 'hidden';
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.position = previousBodyPosition;
+      body.style.top = previousBodyTop;
+      body.style.left = previousBodyLeft;
+      body.style.right = previousBodyRight;
+      body.style.width = previousBodyWidth;
+      documentElement.style.overflow = previousHtmlOverflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  useEffect(() => {
+    setStepIndex((current) => Math.min(current, mobileSteps.length - 1));
+  }, [mobileSteps.length]);
+
+  useEffect(() => {
+    if (!isMobile || !modalRef.current) return;
+    modalRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [isMobile, stepIndex]);
 
   // Live duplicate check with debounce
   useEffect(() => {
@@ -42,8 +150,35 @@ export default function AddPersonModal({ people, onSave, onClose }) {
     return () => clearTimeout(dupeTimer.current);
   }, [fn, ln, activeTreeId]);
 
+  const validateIdentityStep = () => {
+    if (!fn.trim() || !ln.trim()) {
+      alert(t('addPersonModal.firstNameRequired'));
+      return false;
+    }
+    return true;
+  };
+
+  const showStep = (stepKey) => !isMobile || activeStep?.key === stepKey;
+
+  const handleNextStep = () => {
+    if (activeStep?.key === 'identity' && !validateIdentityStep()) return;
+    setStepIndex((current) => Math.min(current + 1, mobileSteps.length - 1));
+  };
+
+  const handleBackStep = () => {
+    if (stepIndex === 0) {
+      onClose();
+      return;
+    }
+    setStepIndex((current) => Math.max(current - 1, 0));
+  };
+
   const handleSave = async () => {
-    if (!fn.trim() || !ln.trim()) { alert(t('addPersonModal.firstNameRequired')); return; }
+    if (!canSubmit) {
+      alert(treeLoading ? t('common.loadingFamilyTree') : t('app.noActiveTree'));
+      return;
+    }
+    if (!validateIdentityStep()) return;
     setSaving(true);
     await onSave({
       firstName: fn.trim(),
@@ -61,98 +196,160 @@ export default function AddPersonModal({ people, onSave, onClose }) {
     onClose();
   };
 
+  const handleFocusCapture = (event) => {
+    if (!isMobile) return;
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    window.setTimeout(() => {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 220);
+  };
+
+  const modalStyle = isMobile && mobileViewportHeight
+    ? { maxHeight: `${Math.max(Math.floor(mobileViewportHeight) - 12, 320)}px` }
+    : undefined;
+
   return (
     <div className={s.backdrop} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={s.modal}>
+      <div className={s.modal} ref={modalRef} style={modalStyle} onFocusCapture={handleFocusCapture}>
         <h2>{t('addPersonModal.title')}</h2>
-        <div className={s.frow}>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.firstName')} *</label>
-            <input type="text" placeholder={t('addPersonModal.placeholders.firstName')} value={fn} onChange={e => setFn(e.target.value)} />
-          </div>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.lastName')} *</label>
-            <input type="text" placeholder={t('addPersonModal.placeholders.lastName')} value={ln} onChange={e => setLn(e.target.value)} />
-          </div>
-        </div>
-        {dupes.length > 0 && (
-          <div className={s.dupeWarning}>
-            <div className={s.dupeTitle}>⚠ {t('addPersonModal.duplicateTitle')}</div>
-            {dupes.map(d => (
-              <div key={d.id} className={s.dupeItem}>
-                {d.first_name} {d.last_name}
-                {d.maiden_name ? ` (née ${d.maiden_name})` : ''}
-                <span className={s.dupeScore}>{t('addPersonModal.duplicateMatch', { score: d.score })}</span>
-              </div>
-            ))}
+        {isMobile && (
+          <div className={s.stepper}>
+            <div className={s.stepMeta}>
+              <span className={s.stepCount}>{t('addPersonModal.stepCounter', { current: stepIndex + 1, total: mobileSteps.length })}</span>
+              <strong className={s.stepTitle}>{activeStep.title}</strong>
+              <p className={s.stepDescription}>{activeStep.description}</p>
+            </div>
+            <div className={s.stepDots} aria-hidden="true">
+              {mobileSteps.map((step, index) => (
+                <span key={step.key} className={`${s.stepDot} ${index === stepIndex ? s.stepDotActive : ''}`} />
+              ))}
+            </div>
           </div>
         )}
-        <div className={s.frow}>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.maidenName')}</label>
-            <input type="text" value={mn} onChange={e => setMn(e.target.value)} />
+
+        {showStep('identity') && (
+          <div className={s.stepPanel}>
+            <div className={s.frow}>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.firstName')} *</label>
+                <input type="text" placeholder={t('addPersonModal.placeholders.firstName')} value={fn} onChange={e => setFn(e.target.value)} />
+              </div>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.lastName')} *</label>
+                <input type="text" placeholder={t('addPersonModal.placeholders.lastName')} value={ln} onChange={e => setLn(e.target.value)} />
+              </div>
+            </div>
+            {dupes.length > 0 && (
+              <div className={s.dupeWarning}>
+                <div className={s.dupeTitle}>⚠ {t('addPersonModal.duplicateTitle')}</div>
+                {dupes.map(d => (
+                  <div key={d.id} className={s.dupeItem}>
+                    {d.first_name} {d.last_name}
+                    {d.maiden_name ? ` (née ${d.maiden_name})` : ''}
+                    <span className={s.dupeScore}>{t('addPersonModal.duplicateMatch', { score: d.score })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className={s.frow}>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.maidenName')}</label>
+                <input type="text" value={mn} onChange={e => setMn(e.target.value)} />
+              </div>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.gender')}</label>
+                <select value={gn} onChange={e => setGn(e.target.value)}>
+                  <option value="M">{t('addPersonModal.genderOptions.male')}</option>
+                  <option value="F">{t('addPersonModal.genderOptions.female')}</option>
+                  <option value="O">{t('addPersonModal.genderOptions.other')}</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.gender')}</label>
-            <select value={gn} onChange={e => setGn(e.target.value)}>
-              <option value="M">{t('addPersonModal.genderOptions.male')}</option>
-              <option value="F">{t('addPersonModal.genderOptions.female')}</option>
-              <option value="O">{t('addPersonModal.genderOptions.other')}</option>
-            </select>
+        )}
+
+        {showStep('details') && (
+          <div className={s.stepPanel}>
+            <div className={s.frow}>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.birthYear')}</label>
+                <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder={t('addPersonModal.placeholders.birthYear')} value={by} onChange={e => setBy(sanitizeYear(e.target.value))} />
+              </div>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.deathYear')}</label>
+                <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder={t('addPersonModal.placeholders.deathYear')} value={dy} onChange={e => setDy(sanitizeYear(e.target.value))} />
+              </div>
+            </div>
+            <div className={s.fg}>
+              <label>{t('addPersonModal.branch')}</label>
+              <select value={br} onChange={e => setBr(e.target.value)}>
+                <option value="paternal">{t('addPersonModal.branchOptions.paternal')}</option>
+                <option value="maternal">{t('addPersonModal.branchOptions.maternal')}</option>
+                <option value="sibling">{t('addPersonModal.branchOptions.sibling')}</option>
+                <option value="married">{t('addPersonModal.branchOptions.married')}</option>
+              </select>
+            </div>
+            <div className={s.fg}>
+              <label>{t('addPersonModal.biography')}</label>
+              <textarea placeholder={t('addPersonModal.placeholders.biography')} value={bio} onChange={e => setBio(e.target.value)} />
+            </div>
           </div>
-        </div>
-        <div className={s.frow}>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.birthYear')}</label>
-            <input type="text" placeholder={t('addPersonModal.placeholders.birthYear')} value={by} onChange={e => setBy(e.target.value)} />
+        )}
+
+        {showStep('relationships') && (
+          <div className={s.stepPanel}>
+            <div className={s.frow}>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.parent1')}</label>
+                <select value={p1} onChange={e => setP1(e.target.value)}>
+                  <option value="">— {t('addPersonModal.noneOption')} —</option>
+                  {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                </select>
+              </div>
+              <div className={s.fg}>
+                <label>{t('addPersonModal.parent2')}</label>
+                <select value={p2} onChange={e => setP2(e.target.value)}>
+                  <option value="">— {t('addPersonModal.noneOption')} —</option>
+                  {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className={s.fg}>
+              <label>{t('addPersonModal.spouse')}</label>
+              <select value={sp} onChange={e => setSp(e.target.value)}>
+                <option value="">— {t('addPersonModal.noneOption')} —</option>
+                {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+              </select>
+            </div>
           </div>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.deathYear')}</label>
-            <input type="text" placeholder={t('addPersonModal.placeholders.deathYear')} value={dy} onChange={e => setDy(e.target.value)} />
+        )}
+
+        {isMobile ? (
+          <div className={`${s.actions} ${s.mobileActions}`}>
+            <button className={s.cancelBtn} onClick={handleBackStep} disabled={saving}>
+              {stepIndex === 0 ? t('common.cancel') : t('common.back')}
+            </button>
+            <button
+              className={s.saveBtn}
+              onClick={isLastStep ? handleSave : handleNextStep}
+              disabled={saving || !canSubmit}
+            >
+              {isLastStep
+                ? (saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson'))
+                : t('common.continue')}
+            </button>
           </div>
-        </div>
-        <div className={s.fg}>
-          <label>{t('addPersonModal.branch')}</label>
-          <select value={br} onChange={e => setBr(e.target.value)}>
-            <option value="paternal">{t('addPersonModal.branchOptions.paternal')}</option>
-            <option value="maternal">{t('addPersonModal.branchOptions.maternal')}</option>
-            <option value="sibling">{t('addPersonModal.branchOptions.sibling')}</option>
-            <option value="married">{t('addPersonModal.branchOptions.married')}</option>
-          </select>
-        </div>
-        <div className={s.fg}>
-          <label>{t('addPersonModal.biography')}</label>
-          <textarea placeholder={t('addPersonModal.placeholders.biography')} value={bio} onChange={e => setBio(e.target.value)} />
-        </div>
-        <div className={s.frow}>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.parent1')}</label>
-            <select value={p1} onChange={e => setP1(e.target.value)}>
-              <option value="">— {t('addPersonModal.noneOption')} —</option>
-              {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-            </select>
+        ) : (
+          <div className={s.actions}>
+            <button className={s.cancelBtn} onClick={onClose} disabled={saving}>{t('common.cancel')}</button>
+            <button className={s.saveBtn} onClick={handleSave} disabled={saving || !canSubmit}>
+              {saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson')}
+            </button>
           </div>
-          <div className={s.fg}>
-            <label>{t('addPersonModal.parent2')}</label>
-            <select value={p2} onChange={e => setP2(e.target.value)}>
-              <option value="">— {t('addPersonModal.noneOption')} —</option>
-              {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className={s.fg}>
-          <label>{t('addPersonModal.spouse')}</label>
-          <select value={sp} onChange={e => setSp(e.target.value)}>
-            <option value="">— {t('addPersonModal.noneOption')} —</option>
-            {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-          </select>
-        </div>
-        <div className={s.actions}>
-          <button className={s.cancelBtn} onClick={onClose} disabled={saving}>{t('common.cancel')}</button>
-          <button className={s.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson')}
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );

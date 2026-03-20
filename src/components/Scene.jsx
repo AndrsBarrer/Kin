@@ -164,6 +164,9 @@ const Scene = forwardRef(function Scene({
     let drag = false, lx = 0, ly = 0, th = 0, ph = Math.PI / 2, cr = 620;
     let activePointerId = null;
     let pointerMoved = false;
+    const activePointers = new Map();
+    let pinchStartDistance = null;
+    let pinchStartRadius = null;
     const ct = new THREE.Vector3();
     let simOn = true;
     let hovId = null;
@@ -193,16 +196,48 @@ const Scene = forwardRef(function Scene({
       return hits[0]?.object?.userData?.pid || null;
     }
 
+    function getPinchDistance() {
+      const [first, second] = [...activePointers.values()];
+      if (!first || !second) return null;
+      return Math.hypot(second.x - first.x, second.y - first.y);
+    }
+
     function handlePointerDown(e) {
-      activePointerId = e.pointerId;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       pointerMoved = false;
-      drag = true;
-      lx = e.clientX;
-      ly = e.clientY;
       renderer.domElement.setPointerCapture?.(e.pointerId);
+
+      if (activePointers.size === 1) {
+        activePointerId = e.pointerId;
+        drag = true;
+        lx = e.clientX;
+        ly = e.clientY;
+        return;
+      }
+
+      if (activePointers.size === 2) {
+        pinchStartDistance = getPinchDistance();
+        pinchStartRadius = cr;
+        activePointerId = null;
+        drag = false;
+        pointerMoved = true;
+      }
     }
 
     function handlePointerMove(e) {
+      if (activePointers.has(e.pointerId)) {
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
+      if (activePointers.size >= 2 && pinchStartDistance && pinchStartRadius) {
+        const nextDistance = getPinchDistance();
+        if (nextDistance) {
+          cr = THREE.MathUtils.clamp((pinchStartRadius * pinchStartDistance) / nextDistance, 120, 1800);
+          updCam();
+        }
+        return;
+      }
+
       if (!drag || (activePointerId !== null && e.pointerId !== activePointerId)) return;
       const deltaX = e.clientX - lx;
       const deltaY = e.clientY - ly;
@@ -223,9 +258,24 @@ const Scene = forwardRef(function Scene({
     }
 
     function handlePointerUp(e) {
-      if (activePointerId !== null && e.pointerId !== activePointerId) return;
-      drag = false;
+      const wasActivePointer = activePointerId === e.pointerId;
+      activePointers.delete(e.pointerId);
       renderer.domElement.releasePointerCapture?.(e.pointerId);
+
+      if (activePointers.size < 2) {
+        pinchStartDistance = null;
+        pinchStartRadius = null;
+      }
+
+      if (!wasActivePointer) {
+        if (activePointers.size === 0) {
+          drag = false;
+          activePointerId = null;
+        }
+        return;
+      }
+
+      drag = false;
       activePointerId = null;
 
       if (!pointerMoved) {
@@ -237,13 +287,15 @@ const Scene = forwardRef(function Scene({
       }
     }
 
+    function handleWheel(e) {
+      cr = Math.max(120, Math.min(1800, cr + e.deltaY * .5)); updCam();
+    }
+
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('pointermove', handlePointerMove, { passive: true });
     window.addEventListener('pointerup', handlePointerUp);
     window.addEventListener('pointercancel', handlePointerUp);
-    renderer.domElement.addEventListener('wheel', e => {
-      cr = Math.max(120, Math.min(1800, cr + e.deltaY * .5)); updCam();
-    }, { passive: true });
+    renderer.domElement.addEventListener('wheel', handleWheel, { passive: true });
 
     renderer.domElement.style.cursor = 'grab';
     renderer.domElement.style.touchAction = 'none';
@@ -391,6 +443,7 @@ const Scene = forwardRef(function Scene({
       window.removeEventListener('pointercancel', handlePointerUp);
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointermove', handleHover);
+      renderer.domElement.removeEventListener('wheel', handleWheel);
       if (mountNode && renderer.domElement.parentNode === mountNode) {
         mountNode.removeChild(renderer.domElement);
       }

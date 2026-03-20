@@ -17,7 +17,7 @@ router.get('/neighborhood', async (req, res, next) => {
     // Inline recursive CTE (replaces PostgreSQL function)
     const { rows: neighborhood } = pool.query(
       `WITH RECURSIVE walk AS (
-         SELECT ? AS pid, 0 AS d
+         SELECT $1 AS pid, 0 AS d
          UNION
          SELECT
            CASE WHEN r.profile_a = w.pid THEN r.profile_b ELSE r.profile_a END,
@@ -25,7 +25,7 @@ router.get('/neighborhood', async (req, res, next) => {
          FROM walk w
          JOIN relationships r ON (r.profile_a = w.pid OR r.profile_b = w.pid)
                               AND r.deleted_at IS NULL
-         WHERE w.d < ?
+         WHERE w.d < $2
        )
        SELECT DISTINCT pid AS profile_id, min(d) AS depth FROM walk GROUP BY pid`,
       [profileId, maxDepth]
@@ -35,7 +35,7 @@ router.get('/neighborhood', async (req, res, next) => {
     if (profileIds.length === 0) return res.json({ profiles: [], relationships: [] });
 
     // Fetch profiles
-    const pPlaceholders = profileIds.map(() => '?').join(', ');
+    const pPlaceholders = profileIds.map((_, index) => `$${index + 1}`).join(', ');
     const { rows: profiles } = pool.query(
       `SELECT id, first_name, last_name, maiden_name, is_living, metadata
        FROM profiles
@@ -44,9 +44,11 @@ router.get('/neighborhood', async (req, res, next) => {
     );
 
     // Fetch relationships between these profiles
+    const relationshipProfileAPlaceholders = profileIds.map((_, index) => `$${index + 1}`).join(', ');
+    const relationshipProfileBPlaceholders = profileIds.map((_, index) => `$${index + 1 + profileIds.length}`).join(', ');
     const { rows: relationships } = pool.query(
       `SELECT * FROM relationships
-       WHERE (profile_a IN (${pPlaceholders}) OR profile_b IN (${pPlaceholders}))
+       WHERE (profile_a IN (${relationshipProfileAPlaceholders}) OR profile_b IN (${relationshipProfileBPlaceholders}))
          AND deleted_at IS NULL`,
       [...profileIds, ...profileIds]
     );

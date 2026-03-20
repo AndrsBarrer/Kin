@@ -37,6 +37,13 @@ db.exec(`
     created_at  TEXT DEFAULT (now())
   );
 
+  CREATE TABLE IF NOT EXISTS session_tokens (
+    token       TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at  TEXT NOT NULL,
+    created_at  TEXT DEFAULT (now())
+  );
+
   CREATE TABLE IF NOT EXISTS trees (
     id              TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
     name            TEXT NOT NULL,
@@ -150,6 +157,8 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_mlt_token    ON magic_link_tokens(token);
+  CREATE INDEX IF NOT EXISTS idx_session_user ON session_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS idx_session_exp  ON session_tokens(expires_at);
   CREATE INDEX IF NOT EXISTS idx_profiles_tree ON profiles(tree_id);
   CREATE INDEX IF NOT EXISTS idx_facts_profile ON facts(profile_id);
   CREATE INDEX IF NOT EXISTS idx_facts_type    ON facts(fact_type);
@@ -232,7 +241,7 @@ function execQuery(sql, params = []) {
   const safeParams = prepareParams(expandedParams);
   const upper = converted.trimStart().toUpperCase();
 
-  if (upper.startsWith('SELECT') || upper.includes('RETURNING')) {
+  if (upper.startsWith('SELECT') || upper.startsWith('WITH') || upper.includes('RETURNING')) {
     const rows = db.prepare(converted).all(...safeParams).map(hydrateRow);
     return { rows };
   }

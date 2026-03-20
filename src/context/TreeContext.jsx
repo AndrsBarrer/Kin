@@ -3,6 +3,10 @@ import { trees as treesApi, bootstrap, setToken, auth } from '../api/client';
 
 const TreeContext = createContext(null);
 
+function normalizeTreeId(id) {
+  return id == null ? null : String(id);
+}
+
 export function useTree() {
   const ctx = useContext(TreeContext);
   if (!ctx) throw new Error('useTree must be used within TreeProvider');
@@ -13,13 +17,14 @@ export function TreeProvider({ children }) {
   const [treeList, setTreeList] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [activeTreeId, setActiveTreeIdState] = useState(
-    () => localStorage.getItem('kin_active_tree') || null
+    () => normalizeTreeId(localStorage.getItem('kin_active_tree'))
   );
   const [loading, setLoading] = useState(true);
 
   function setActiveTreeId(id) {
-    setActiveTreeIdState(id);
-    if (id) localStorage.setItem('kin_active_tree', id);
+    const nextId = normalizeTreeId(id);
+    setActiveTreeIdState(nextId);
+    if (nextId) localStorage.setItem('kin_active_tree', nextId);
     else localStorage.removeItem('kin_active_tree');
   }
 
@@ -28,12 +33,19 @@ export function TreeProvider({ children }) {
       /** After obtaining a tree list, pick the right active tree */
       function syncActiveTree(list) {
         setTreeList(list);
-        if (list.length === 0) return;
-        // If the stored activeTreeId isn't in the list, reset to first
-        const ids = list.map(t => t.id);
-        if (!activeTreeId || !ids.includes(activeTreeId)) {
-          setActiveTreeId(list[0].id);
-          console.log('[Kin] Auto-selected first tree:', list[0].id);
+        if (list.length === 0) {
+          setActiveTreeId(null);
+          return;
+        }
+
+        const matchingTree = list.find((tree) => normalizeTreeId(tree.id) === activeTreeId);
+        const nextActiveTreeId = matchingTree
+          ? normalizeTreeId(matchingTree.id)
+          : normalizeTreeId(list[0].id);
+
+        if (nextActiveTreeId !== activeTreeId) {
+          setActiveTreeId(nextActiveTreeId);
+          console.log('[Kin] Auto-selected first available tree:', nextActiveTreeId);
         }
       }
 

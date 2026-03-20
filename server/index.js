@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -17,42 +18,84 @@ import mediaRoutes from './routes/media.js';
 import { authenticate } from './middleware/auth.js';
 import { startDigestScheduler } from './services/digest.js';
 
-const app = express();
-const PORT = process.env.PORT || 3001;
+function isAllowedDevelopmentOrigin(origin) {
+  if (!origin) return true;
 
-// ── Global middleware ───────────────────────────────
-app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname;
 
-// ── Auth context (sets req.user if valid session) ───
-app.use(authenticate);
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+    if (hostname === '0.0.0.0') return true;
+    if (hostname.endsWith('.local')) return true;
+    if (/^192\.168\./.test(hostname)) return true;
+    if (/^10\./.test(hostname)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
+  } catch {
+    return false;
+  }
 
-// ── Routes ──────────────────────────────────────────
-app.use('/api/auth', authRoutes);
-app.use('/api/trees', treeRoutes);
-app.use('/api/profiles', profileRoutes);
-app.use('/api/facts', factRoutes);
-app.use('/api/relationships', relationshipRoutes);
-app.use('/api/proposals', proposalRoutes);
-app.use('/api/graph', graphRoutes);
-app.use('/api/join', joinRoutes);
-app.use('/api/bootstrap', bootstrapRoutes);
-app.use('/api/stories', storyRoutes);
-app.use('/api/media', mediaRoutes);
+  return false;
+}
 
-// ── Health check ────────────────────────────────────
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+function createCorsOrigin() {
+  return process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL
+    : (origin, callback) => {
+        if (isAllowedDevelopmentOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
 
-// ── Error handler ───────────────────────────────────
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
-});
+        callback(new Error('CORS origin not allowed'));
+      };
+}
 
-app.listen(PORT, () => {
-  console.log(`Kin API listening on :${PORT}`);
-  startDigestScheduler();
-});
+export function createApp() {
+  const app = express();
+
+  app.use(helmet());
+  app.use(cors({ origin: createCorsOrigin(), credentials: true }));
+  app.use(express.json({ limit: '10mb' }));
+
+  app.use(authenticate);
+
+  app.use('/api/auth', authRoutes);
+  app.use('/api/trees', treeRoutes);
+  app.use('/api/profiles', profileRoutes);
+  app.use('/api/facts', factRoutes);
+  app.use('/api/relationships', relationshipRoutes);
+  app.use('/api/proposals', proposalRoutes);
+  app.use('/api/graph', graphRoutes);
+  app.use('/api/join', joinRoutes);
+  app.use('/api/bootstrap', bootstrapRoutes);
+  app.use('/api/stories', storyRoutes);
+  app.use('/api/media', mediaRoutes);
+
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+  app.use((err, _req, res, _next) => {
+    console.error(err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  });
+
+  return app;
+}
+
+const app = createApp();
+
+export function startServer(appInstance = app, options = {}) {
+  const port = options.port || process.env.PORT || 3001;
+  const host = options.host || process.env.HOST || '0.0.0.0';
+
+  return appInstance.listen(port, host, () => {
+    console.log(`Kin API listening on ${host}:${port}`);
+    startDigestScheduler();
+  });
+}
+
+if (process.env.KIN_DISABLE_SERVER_LISTEN !== '1' && process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  startServer();
+}
 
 export default app;

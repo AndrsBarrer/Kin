@@ -41,6 +41,16 @@ CREATE TABLE magic_link_tokens (
 CREATE INDEX idx_mlt_token ON magic_link_tokens(token);
 CREATE INDEX idx_mlt_expires ON magic_link_tokens(expires_at) WHERE used_at IS NULL;
 
+CREATE TABLE session_tokens (
+  token       TEXT PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_session_user ON session_tokens(user_id);
+CREATE INDEX idx_session_exp ON session_tokens(expires_at);
+
 -- ══════════════════════════════════════════════════════
 --  TREES & MEMBERSHIP
 -- ══════════════════════════════════════════════════════

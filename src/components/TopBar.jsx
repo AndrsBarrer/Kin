@@ -13,14 +13,14 @@ function normalizeText(value) {
 }
 
 export default function TopBar({
-  people, rels, focusedId, pathMode, graphMode, is3DAvailable,
+  people, rels, focusedId, pathMode, graphMode, is3DAvailable, canOpenModal,
+  mobileMenuOpen, onMobileMenuOpenChange,
   onSetFocus, onOpenPanel, onTogglePathMode, onToggleGraphMode, onResetView, onOpenModal,
   sceneRef,
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pathA, setPathA] = useState(null);
   const [pathB, setPathB] = useState(null);
   const [pathBanner, setPathBanner] = useState(null);
@@ -45,7 +45,7 @@ export default function TopBar({
   const handleSearchClick = (p) => {
     setShowResults(false);
     setQuery('');
-    setMobileMenuOpen(false);
+    onMobileMenuOpenChange(false);
     onSetFocus(p.id);
     onOpenPanel(p.id);
   };
@@ -56,7 +56,7 @@ export default function TopBar({
   }, [matches]);
 
   const handlePathToggle = () => {
-    setMobileMenuOpen(false);
+    onMobileMenuOpenChange(false);
     if (pathMode) {
       setPathA(null); setPathB(null); setPathBanner(null);
       sceneRef.current?.__sceneApi?.highlightPath([]);
@@ -73,17 +73,18 @@ export default function TopBar({
   };
 
   const handleOpenAddPerson = () => {
-    setMobileMenuOpen(false);
+    if (!canOpenModal) return;
+    onMobileMenuOpenChange(false);
     onOpenModal();
   };
 
   const handleReset = () => {
-    setMobileMenuOpen(false);
+    onMobileMenuOpenChange(false);
     onResetView();
   };
 
   const handleToggleGraph = () => {
-    setMobileMenuOpen(false);
+    onMobileMenuOpenChange(false);
     onToggleGraphMode?.();
   };
 
@@ -150,11 +151,7 @@ export default function TopBar({
       {/* Topbar */}
       <div className={s.topbar}>
         <div className={s.logo}>
-          <svg className={s.logoLeaf} viewBox="0 0 26 26" fill="none">
-            <path d="M13 3C7.5 3 4 8 4 13c0 4.5 3 8 9 9.5C19 21 22 17 22 13 22 7.5 18 3 13 3z" fill="#3D7C47" opacity=".15"/>
-            <path d="M13 22.5V10M13 10C13 10 9 13 7 17M13 10C13 10 17 13 19 17" stroke="#3D7C47" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-          <span className={s.logoText}>Kin</span>
+          <img className={s.logoImage} src="/Kin.png" alt="Kin" />
         </div>
         <div className={s.sep} />
         <div className={s.searchWrap} ref={wrapRef}>
@@ -222,7 +219,7 @@ export default function TopBar({
               </button>
             </div>
           )}
-          <button className={`${s.tbtn} ${s.addBtn}`} onClick={handleOpenAddPerson}>+ {t('topBar.addPerson')}</button>
+          <button className={`${s.tbtn} ${s.addBtn}`} onClick={handleOpenAddPerson} disabled={!canOpenModal}>+ {t('topBar.addPerson')}</button>
           <button className={s.tbtn} onClick={handleReset}>{t('topBar.resetView')}</button>
         </div>
         <div style={{ flexShrink: 0 }}>
@@ -231,7 +228,7 @@ export default function TopBar({
         <button
           type="button"
           className={s.mobileMenuBtn}
-          onClick={() => setMobileMenuOpen(prev => !prev)}
+          onClick={() => onMobileMenuOpenChange(!mobileMenuOpen)}
           aria-expanded={mobileMenuOpen}
           aria-label={mobileMenuOpen ? t('topBar.closeMenu') : t('topBar.openMenu')}
         >
@@ -241,10 +238,10 @@ export default function TopBar({
 
       {mobileMenuOpen && (
         <>
-          <button className={s.mobileMenuBackdrop} onClick={() => setMobileMenuOpen(false)} aria-label={t('topBar.closeMenu')} />
+          <button className={s.mobileMenuBackdrop} onClick={() => onMobileMenuOpenChange(false)} aria-label={t('topBar.closeMenu')} />
           <div className={s.mobileMenu}>
             <button className={`${s.mobileAction} ${pathMode ? s.mobileActionActive : ''}`} onClick={handlePathToggle}>{t('topBar.findConnection')}</button>
-            <button className={`${s.mobileAction} ${s.mobileActionPrimary}`} onClick={handleOpenAddPerson}>{t('topBar.addPerson')}</button>
+            <button className={`${s.mobileAction} ${s.mobileActionPrimary}`} onClick={handleOpenAddPerson} disabled={!canOpenModal}>{t('topBar.addPerson')}</button>
             <button className={s.mobileAction} onClick={handleReset}>{t('topBar.resetView')}</button>
             {is3DAvailable && (
               <button className={s.mobileAction} onClick={handleToggleGraph}>

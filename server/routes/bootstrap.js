@@ -31,6 +31,30 @@ router.post('/', async (req, res, next) => {
         `SELECT id FROM trees WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1`
       );
       if (existingTrees.length > 0) {
+        if (process.env.NODE_ENV !== 'production') {
+          const { rows: localUsers } = await pool.query(
+            `SELECT u.id, t.id AS tree_id
+             FROM users u
+             JOIN tree_members tm ON tm.user_id = u.id
+             JOIN trees t ON t.id = tm.tree_id
+             WHERE u.email LIKE '%@kin.local'
+               AND t.deleted_at IS NULL
+             ORDER BY tm.joined_at ASC
+             LIMIT 1`
+          );
+
+          if (localUsers.length > 0) {
+            const sessionToken = createSessionToken(localUsers[0].id);
+            return res.json({
+              tree: { id: localUsers[0].tree_id },
+              sessionToken,
+              userId: localUsers[0].id,
+              alreadySetUp: true,
+              recoveredSession: true,
+            });
+          }
+        }
+
         return res.status(409).json({
           error: 'Bootstrap is only available before the first tree is created',
         });

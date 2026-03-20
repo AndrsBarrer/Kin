@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:client": "vite",
     "dev:server": "node server/index.js",
+    "dev:lan": "node scripts/dev-lan.mjs",
+    "dev:lan:run": "concurrently -n client,server -c green,blue \"npm run dev:client\" \"npm run dev:server\"",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test server/api.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -32,6 +36,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.183.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.2.1",
     "eslint": "^9.13.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^5.0.0",
