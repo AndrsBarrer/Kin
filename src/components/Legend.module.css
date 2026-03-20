@@ -1,5 +1,5 @@
 .legend {
-  position: fixed; bottom: 20px; left: 20px; z-index: 100;
+  position: fixed; bottom: 20px; left: 20px; z-index: 80;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 12px 14px; display: flex; flex-direction: column; gap: 7px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);

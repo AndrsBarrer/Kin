@@ -50,6 +50,8 @@ export default function DetailPanel({
   const br = BRANCH[person.branch];
   const col = br?.hex || '#888';
   const publicUrl = person.public_slug ? `${window.location.origin}/p/${person.public_slug}` : null;
+  const inviteUrl = person.invite_token ? `${window.location.origin}/join?token=${person.invite_token}` : null;
+  const publicProfileUrl = person.public_slug ? `${window.location.origin}/p/${person.public_slug}` : null;
   const publicPhotoCount = person.photo ? 1 : 0;
   const publicDocCount = person.docs?.length || 0;
   const dates = person.birth
@@ -61,6 +63,49 @@ export default function DetailPanel({
     if (relation.type === 'child') return t('detailPanel.childOf', { name: person.firstName });
     if (relation.type === 'marriage') return t('detailPanel.spousePartner');
     return relation.label;
+  };
+
+  const copyText = async (value, successMessage, onSuccess) => {
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = value;
+        textArea.setAttribute('readonly', '');
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.width = '1px';
+        textArea.style.height = '1px';
+        textArea.style.padding = '0';
+        textArea.style.border = '0';
+        textArea.style.outline = '0';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        textArea.style.opacity = '0';
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        textArea.setSelectionRange(0, textArea.value.length);
+
+        const copiedSuccessfully = document.execCommand('copy');
+        document.body.removeChild(textArea);
+
+        if (!copiedSuccessfully) {
+          throw new Error('execCommand copy failed');
+        }
+      }
+
+      onSuccess?.();
+      toast(successMessage, 'info');
+      return true;
+    } catch (err) {
+      console.error('[Kin] Failed to copy to clipboard:', err);
+      toast(t('detailPanel.copyFailed'), 'error');
+      return false;
+    }
   };
 
   const handleUpload = () => fileRef.current?.click();
@@ -436,10 +481,7 @@ export default function DetailPanel({
                     </button>
                     <button
                       className={s.secondaryAction}
-                      onClick={() => {
-                        navigator.clipboard.writeText(publicUrl);
-                        toast(t('detailPanel.publicLinkCopied'), 'info');
-                      }}
+                      onClick={() => copyText(publicUrl, t('detailPanel.publicLinkCopied'))}
                     >
                       {t('detailPanel.copyLink')}
                     </button>
@@ -510,7 +552,7 @@ export default function DetailPanel({
             }}>
               <input
                 readOnly
-                value={`${window.location.origin}/join?token=${person.invite_token}`}
+                value={inviteUrl}
                 style={{
                   flex: 1, padding: '7px 10px', fontSize: 12, borderRadius: 6,
                   border: '1px solid var(--border)', background: 'var(--surface2)',
@@ -520,11 +562,10 @@ export default function DetailPanel({
               />
               <button
                 className={s.rchipBtn}
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/join?token=${person.invite_token}`);
+                onClick={() => copyText(inviteUrl, t('common.copied'), () => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
-                }}
+                })}
               >
                 {copied ? `✓ ${t('common.copied')}` : t('common.copy')}
               </button>
@@ -549,7 +590,7 @@ export default function DetailPanel({
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 readOnly
-                value={`${window.location.origin}/p/${person.public_slug}`}
+                value={publicProfileUrl}
                 style={{
                   flex: 1, padding: '7px 10px', fontSize: 12, borderRadius: 6,
                   border: '1px solid var(--border)', background: 'var(--surface2)',
@@ -559,10 +600,7 @@ export default function DetailPanel({
               />
               <button
                 className={s.rchipBtn}
-                onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/p/${person.public_slug}`);
-                  toast(t('detailPanel.publicUrlCopied'), 'info');
-                }}
+                onClick={() => copyText(publicProfileUrl, t('detailPanel.publicUrlCopied'))}
               >{t('common.copy')}</button>
             </div>
           </>
