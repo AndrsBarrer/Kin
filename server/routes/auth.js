@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { createMagicLink, verifyMagicToken, createSessionToken, destroySession, verifyPassword } from '../services/auth.js';
+import { sendMagicLinkEmail } from '../services/email.js';
 
 const router = Router();
 
 /**
  * POST /api/auth/magic-link
  * Body: { email }
- * Sends a magic link (logs to console in dev).
+ * Sends a magic link by email.
  */
 router.post('/magic-link', async (req, res, next) => {
   try {
@@ -16,10 +17,7 @@ router.post('/magic-link', async (req, res, next) => {
 
     const { magicLink } = await createMagicLink(email, { displayName, claimToken });
 
-    // In dev, log the link. In prod, send via email service.
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n✉️  Magic link for ${email}:\n   ${magicLink}\n`);
-    }
+    await sendMagicLinkEmail(email, magicLink, { displayName, claimToken });
 
     res.json({ message: 'Magic link sent. Check your email.' });
   } catch (err) {

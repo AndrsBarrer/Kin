@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
@@ -17,6 +18,7 @@ import storyRoutes from './routes/stories.js';
 import mediaRoutes from './routes/media.js';
 import { authenticate } from './middleware/auth.js';
 import { startDigestScheduler } from './services/digest.js';
+import { getEmailDeliveryConfig } from './services/email.js';
 
 function isAllowedDevelopmentOrigin(origin) {
   if (!origin) return true;
@@ -74,7 +76,8 @@ export function createApp() {
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-  app.use((err, _req, res, _next) => {
+  app.use((err, _req, res, next) => {
+    void next;
     console.error(err);
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   });
@@ -89,7 +92,9 @@ export function startServer(appInstance = app, options = {}) {
   const host = options.host || process.env.HOST || '0.0.0.0';
 
   return appInstance.listen(port, host, () => {
+    const emailConfig = getEmailDeliveryConfig();
     console.log(`Kin API listening on ${host}:${port}`);
+    console.log(`[Kin Email] Mode: ${emailConfig.mode} | From: ${emailConfig.from}`);
     startDigestScheduler();
   });
 }
