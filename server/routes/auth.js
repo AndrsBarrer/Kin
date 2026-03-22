@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { createMagicLink, verifyMagicToken, createSessionToken, destroySession, verifyPassword } from '../services/auth.js';
+import { createMagicLink, verifyMagicToken, createSessionToken, destroySession, verifyPassword, findUserByEmail, normalizeEmail } from '../services/auth.js';
 import { sendMagicLinkEmail } from '../services/email.js';
 
 const router = Router();
@@ -75,16 +75,12 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE lower(trim(email)) = $1 ORDER BY created_at ASC LIMIT 1',
-      [email.toLowerCase().trim()]
-    );
+    const user = await findUserByEmail(normalizeEmail(email), pool);
 
-    if (rows.length === 0 || !rows[0].password_hash) {
+    if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const user = rows[0];
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid email or password' });

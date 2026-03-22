@@ -27,16 +27,13 @@ export async function verifyPassword(password, stored) {
 const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * Create or find user by email, generate a magic-link token.
- * Returns { user, token, magicLink }.
- */
-export async function createMagicLink(email, options = {}) {
-  const normalizedEmail = email.toLowerCase().trim();
-  const normalizedDisplayName = options.displayName?.trim() || null;
-  const canCreateAccount = Boolean(options.createAccount || options.claimToken);
+export function normalizeEmail(email) {
+  return email.toLowerCase().trim();
+}
 
-  const { rows: existingUsers } = await pool.query(
+export async function findUserByEmail(email, dbClient = pool) {
+  const normalizedEmail = normalizeEmail(email);
+  const { rows } = await dbClient.query(
     `SELECT *
      FROM users
      WHERE lower(trim(email)) = $1
@@ -44,8 +41,50 @@ export async function createMagicLink(email, options = {}) {
      LIMIT 1`,
     [normalizedEmail]
   );
+  return rows[0] || null;
+}
 
-  const existingUser = existingUsers[0] || null;
+export async function upsertUserByEmail(email, options = {}, dbClient = pool) {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedDisplayName = options.displayName?.trim() || null;
+  const existingUser = await findUserByEmail(normalizedEmail, dbClient);
+
+  if (existingUser) {
+    const { rows } = await dbClient.query(
+      `UPDATE users
+       SET email = $2,
+           display_name = COALESCE(NULLIF($3, ''), users.display_name),
+           password_hash = COALESCE($4, users.password_hash),
+           email_verified_at = CASE
+             WHEN $5 THEN COALESCE(users.email_verified_at, now())
+             ELSE users.email_verified_at
+           END
+       WHERE id = $1
+       RETURNING *`,
+      [existingUser.id, normalizedEmail, normalizedDisplayName, options.passwordHash || null, Boolean(options.verifyEmail)]
+    );
+    return rows[0];
+  }
+
+  const { rows } = await dbClient.query(
+    `INSERT INTO users (email, display_name, password_hash, email_verified_at)
+     VALUES ($1, $2, $3, CASE WHEN $4 THEN now() ELSE NULL END)
+     RETURNING *`,
+    [normalizedEmail, normalizedDisplayName, options.passwordHash || null, Boolean(options.verifyEmail)]
+  );
+  return rows[0];
+}
+
+/**
+ * Create or find user by email, generate a magic-link token.
+ * Returns { user, token, magicLink }.
+ */
+export async function createMagicLink(email, options = {}) {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedDisplayName = options.displayName?.trim() || null;
+  const canCreateAccount = Boolean(options.createAccount || options.claimToken);
+
+  const existingUser = await findUserByEmail(normalizedEmail);
 
   if (!existingUser && !canCreateAccount) {
     throw Object.assign(new Error('No account exists for this email yet. Create an account first or use a tree access code.'), { status: 404 });
@@ -55,27 +94,7 @@ export async function createMagicLink(email, options = {}) {
     throw Object.assign(new Error('Enter your full name to create an account'), { status: 400 });
   }
 
-  let user;
-
-  if (existingUser) {
-    const { rows } = await pool.query(
-      `UPDATE users
-       SET email = $2,
-           display_name = COALESCE(users.display_name, NULLIF($3, ''))
-       WHERE id = $1
-       RETURNING *`,
-      [existingUser.id, normalizedEmail, normalizedDisplayName]
-    );
-    [user] = rows;
-  } else {
-    const { rows } = await pool.query(
-      `INSERT INTO users (email, display_name)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [normalizedEmail, normalizedDisplayName]
-    );
-    [user] = rows;
-  }
+  const user = await upsertUserByEmail(normalizedEmail, { displayName: normalizedDisplayName });
 
   // Generate token
   const token = cryptoRandomString({ length: 64, type: 'url-safe' });

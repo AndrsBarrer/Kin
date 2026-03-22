@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { createSessionToken, hashPassword } from '../services/auth.js';
+import { createSessionToken, hashPassword, normalizeEmail, upsertUserByEmail } from '../services/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../services/audit.js';
 import {
@@ -14,7 +14,7 @@ import {
 const router = Router();
 
 async function completeTreeAccessJoin(client, { treeId, code, email, displayName }) {
-  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedEmail = normalizeEmail(email);
   const normalizedDisplayName = displayName.trim();
   const { firstName, lastName } = splitDisplayName(normalizedDisplayName);
   const access = treeId
@@ -22,15 +22,10 @@ async function completeTreeAccessJoin(client, { treeId, code, email, displayName
     : await consumeTreeAccessCodeByCode(client, code);
   const resolvedTreeId = access.treeId;
 
-  const { rows: [user] } = await client.query(
-    `INSERT INTO users (email, display_name, email_verified_at)
-     VALUES ($1, $2, now())
-     ON CONFLICT (email) DO UPDATE SET
-       display_name = COALESCE(NULLIF($2, ''), users.display_name),
-       email_verified_at = COALESCE(users.email_verified_at, now())
-     RETURNING *`,
-    [normalizedEmail, normalizedDisplayName]
-  );
+  const user = await upsertUserByEmail(normalizedEmail, {
+    displayName: normalizedDisplayName,
+    verifyEmail: true,
+  }, client);
 
   await client.query(
     `INSERT INTO tree_members (tree_id, user_id, role)
@@ -134,7 +129,7 @@ router.post('/claim', async (req, res, next) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = normalizeEmail(email);
 
     // Verify the invite token
     const { rows: profileRows } = await pool.query(
@@ -160,15 +155,11 @@ router.post('/claim', async (req, res, next) => {
       const passwordHash = await hashPassword(password);
 
       // Upsert user
-      const { rows: [user] } = await client.query(
-        `INSERT INTO users (email, display_name, password_hash, email_verified_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (email) DO UPDATE SET
-           display_name = COALESCE(NULLIF($2, ''), users.display_name),
-           password_hash = COALESCE($3, users.password_hash)
-         RETURNING *`,
-        [normalizedEmail, displayName || null, passwordHash]
-      );
+      const user = await upsertUserByEmail(normalizedEmail, {
+        displayName: displayName || null,
+        passwordHash,
+        verifyEmail: true,
+      }, client);
 
       // Claim the profile
       await client.query(
@@ -290,7 +281,7 @@ router.post('/tree-access', async (req, res, next) => {
       await client.query('COMMIT');
 
       logAction(result.user.id, 'tree.join_via_code', 'tree', result.treeId, null, {
-        email: email.toLowerCase().trim(),
+        email: normalizeEmail(email),
         profileId: result.profileId,
       });
 
@@ -333,7 +324,7 @@ router.post('/tree-access-code', async (req, res, next) => {
       await client.query('COMMIT');
 
       logAction(result.user.id, 'tree.join_via_code', 'tree', result.treeId, null, {
-        email: email.toLowerCase().trim(),
+        email: normalizeEmail(email),
         profileId: result.profileId,
       });
 
