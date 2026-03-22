@@ -249,6 +249,26 @@ test('existing accounts can request a magic-link sign-in by email only, while ne
     },
   });
   assert.equal(createAccount.status, 200);
+
+  run(
+    `INSERT INTO users (email, display_name)
+     VALUES (?, ?)`,
+    ['  LegacyUser@Example.com  ', 'Legacy User']
+  );
+
+  const legacyEmailOnly = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'legacyuser@example.com',
+    },
+  });
+  assert.equal(legacyEmailOnly.status, 200);
+
+  const normalizedLegacy = getRow(
+    'SELECT email FROM users WHERE lower(trim(email)) = ?',
+    ['legacyuser@example.com']
+  );
+  assert.equal(normalizedLegacy.email, 'legacyuser@example.com');
 });
 
 test('profile updates persist owner-editable profile fields and allow clearing optional values', async () => {
@@ -374,6 +394,14 @@ test('profiles and join endpoints cover creation, invite verification, claim, an
   });
   assert.equal(login.status, 200);
   assert.equal(login.body.user.email, 'alice@example.com');
+
+  const magicLinkForClaimedUser = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'alice@example.com',
+    },
+  });
+  assert.equal(magicLinkForClaimedUser.status, 200);
 
   const secondProfile = await createProfile(admin.token, admin.treeId, {
     firstName: 'Bob',

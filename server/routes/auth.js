@@ -76,7 +76,7 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
     const { rows } = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT * FROM users WHERE lower(trim(email)) = $1 ORDER BY created_at ASC LIMIT 1',
       [email.toLowerCase().trim()]
     );
 

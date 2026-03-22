@@ -39,7 +39,9 @@ export async function createMagicLink(email, options = {}) {
   const { rows: existingUsers } = await pool.query(
     `SELECT *
      FROM users
-     WHERE email = $1`,
+     WHERE lower(trim(email)) = $1
+     ORDER BY created_at ASC
+     LIMIT 1`,
     [normalizedEmail]
   );
 
