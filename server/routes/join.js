@@ -3,8 +3,83 @@ import pool from '../db/pool.js';
 import { createSessionToken, hashPassword } from '../services/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../services/audit.js';
+import {
+  buildProfileSlug,
+  consumeTreeAccessCode,
+  consumeTreeAccessCodeByCode,
+  getTreePreview,
+  splitDisplayName,
+} from '../services/treeAccess.js';
 
 const router = Router();
+
+async function completeTreeAccessJoin(client, { treeId, code, email, displayName }) {
+  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedDisplayName = displayName.trim();
+  const { firstName, lastName } = splitDisplayName(normalizedDisplayName);
+  const access = treeId
+    ? await consumeTreeAccessCode(client, treeId, code)
+    : await consumeTreeAccessCodeByCode(client, code);
+  const resolvedTreeId = access.treeId;
+
+  const { rows: [user] } = await client.query(
+    `INSERT INTO users (email, display_name, email_verified_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (email) DO UPDATE SET
+       display_name = COALESCE(NULLIF($2, ''), users.display_name),
+       email_verified_at = COALESCE(users.email_verified_at, now())
+     RETURNING *`,
+    [normalizedEmail, normalizedDisplayName]
+  );
+
+  await client.query(
+    `INSERT INTO tree_members (tree_id, user_id, role)
+     VALUES ($1, $2, 'contributor')
+     ON CONFLICT (tree_id, user_id) DO NOTHING`,
+    [resolvedTreeId, user.id]
+  );
+
+  const { rows: existingProfiles } = await client.query(
+    `SELECT id
+     FROM profiles
+     WHERE tree_id = $1 AND claimed_by = $2 AND deleted_at IS NULL
+     LIMIT 1`,
+    [resolvedTreeId, user.id]
+  );
+
+  let profileId = existingProfiles[0]?.id || null;
+  let createdProfile = false;
+
+  if (!profileId) {
+    const publicSlug = buildProfileSlug(firstName, lastName);
+    const { rows: [profile] } = await client.query(
+      `INSERT INTO profiles (tree_id, first_name, last_name, is_living, claimed_by, metadata, public_slug)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [resolvedTreeId, firstName, lastName, true, user.id, JSON.stringify({ branch: 'sibling' }), publicSlug]
+    );
+    profileId = profile.id;
+    createdProfile = true;
+  }
+
+  return {
+    sessionToken: createSessionToken(user.id),
+    treeId: resolvedTreeId,
+    user,
+    profileId,
+    createdProfile,
+  };
+}
+
+router.get('/tree/:treeId', async (req, res, next) => {
+  try {
+    const tree = await getTreePreview(req.params.treeId);
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    res.json(tree);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * GET /api/join/verify?token=...
@@ -190,6 +265,92 @@ router.post('/claim-authenticated', requireAuth, async (req, res, next) => {
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/tree-access', async (req, res, next) => {
+  try {
+    const { treeId, code, email, displayName } = req.body;
+    if (!treeId || !code || !email || !displayName) {
+      return res.status(400).json({ error: 'treeId, code, email, and displayName are required' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const result = await completeTreeAccessJoin(client, { treeId, code, email, displayName });
+
+      await client.query('COMMIT');
+
+      logAction(result.user.id, 'tree.join_via_code', 'tree', result.treeId, null, {
+        email: email.toLowerCase().trim(),
+        profileId: result.profileId,
+      });
+
+      res.json({
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          displayName: result.user.display_name,
+        },
+        token: result.sessionToken,
+        treeId: result.treeId,
+        profileId: result.profileId,
+        createdProfile: result.createdProfile,
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/tree-access-code', async (req, res, next) => {
+  try {
+    const { code, email, displayName } = req.body;
+    if (!code || !email || !displayName) {
+      return res.status(400).json({ error: 'code, email, and displayName are required' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const result = await completeTreeAccessJoin(client, { code, email, displayName });
+
+      await client.query('COMMIT');
+
+      logAction(result.user.id, 'tree.join_via_code', 'tree', result.treeId, null, {
+        email: email.toLowerCase().trim(),
+        profileId: result.profileId,
+      });
+
+      res.json({
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          displayName: result.user.display_name,
+        },
+        token: result.sessionToken,
+        treeId: result.treeId,
+        profileId: result.profileId,
+        createdProfile: result.createdProfile,
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
     } finally {
       client.release();
     }

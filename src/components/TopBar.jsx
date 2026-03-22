@@ -16,6 +16,8 @@ export default function TopBar({
   people, rels, focusedId, pathMode, graphMode, is3DAvailable, canOpenModal,
   mobileMenuOpen, onMobileMenuOpenChange,
   onSetFocus, onOpenPanel, onTogglePathMode, onToggleGraphMode, onResetView, onOpenModal,
+  currentUser, isAuthenticated, onLogout, onOpenSignIn,
+  ownedProfile, onOpenPublicProfile,
   sceneRef,
 }) {
   const { t } = useTranslation();
@@ -24,7 +26,9 @@ export default function TopBar({
   const [pathA, setPathA] = useState(null);
   const [pathB, setPathB] = useState(null);
   const [pathBanner, setPathBanner] = useState(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const wrapRef = useRef(null);
+  const profileMenuRef = useRef(null);
   const normalizedQuery = normalizeText(query);
 
   const matches = normalizedQuery
@@ -133,6 +137,23 @@ export default function TopBar({
     };
   }, [handlePathSelect]);
 
+  useEffect(() => {
+    if (!profileMenuOpen) return undefined;
+
+    function handlePointerDown(event) {
+      if (!profileMenuRef.current?.contains(event.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [profileMenuOpen]);
+
   const clearFocus = () => {
     sceneRef.current?.__sceneApi?.startSim(4000);
     onSetFocus(null);
@@ -222,6 +243,39 @@ export default function TopBar({
           <button className={`${s.tbtn} ${s.addBtn}`} onClick={handleOpenAddPerson} disabled={!canOpenModal}>+ {t('topBar.addPerson')}</button>
           <button className={s.tbtn} onClick={handleReset}>{t('topBar.resetView')}</button>
         </div>
+        {!isAuthenticated && onOpenSignIn && (
+          <div className={s.desktopActions}>
+            <button className={s.tbtn} onClick={onOpenSignIn}>{t('topBar.signIn')}</button>
+          </div>
+        )}
+        {isAuthenticated && currentUser && (
+          <div className={s.profileMenuWrap} ref={profileMenuRef}>
+            <button
+              className={s.profileMenuButton}
+              type="button"
+              onClick={() => setProfileMenuOpen((open) => !open)}
+              aria-expanded={profileMenuOpen}
+              aria-haspopup="menu"
+            >
+              <span className={s.profileMenuAvatar}>{(currentUser.displayName || currentUser.email || '?').slice(0, 1).toUpperCase()}</span>
+              <span className={s.profileMenuLabel}>{currentUser.displayName || currentUser.email}</span>
+              <span className={s.profileMenuCaret}>▾</span>
+            </button>
+            {profileMenuOpen && (
+              <div className={s.profileMenuDropdown} role="menu">
+                <div className={s.profileMenuHeading}>{t('topBar.signedInAs', { name: currentUser.displayName || currentUser.email })}</div>
+                {ownedProfile && onOpenPublicProfile && (
+                  <button className={s.profileMenuItem} type="button" onClick={() => { setProfileMenuOpen(false); onOpenPublicProfile(); }}>
+                    {t('topBar.viewPublicProfile')}
+                  </button>
+                )}
+                <button className={s.profileMenuItem} type="button" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>
+                  {t('topBar.signOut')}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ flexShrink: 0 }}>
           <LanguageToggle />
         </div>
@@ -243,6 +297,9 @@ export default function TopBar({
             <button className={`${s.mobileAction} ${pathMode ? s.mobileActionActive : ''}`} onClick={handlePathToggle}>{t('topBar.findConnection')}</button>
             <button className={`${s.mobileAction} ${s.mobileActionPrimary}`} onClick={handleOpenAddPerson} disabled={!canOpenModal}>{t('topBar.addPerson')}</button>
             <button className={s.mobileAction} onClick={handleReset}>{t('topBar.resetView')}</button>
+            {!isAuthenticated && onOpenSignIn && <button className={s.mobileAction} onClick={onOpenSignIn}>{t('topBar.signIn')}</button>}
+            {isAuthenticated && ownedProfile && onOpenPublicProfile && <button className={s.mobileAction} onClick={() => { onMobileMenuOpenChange(false); onOpenPublicProfile(); }}>{t('topBar.viewPublicProfile')}</button>}
+            {isAuthenticated && <button className={s.mobileAction} onClick={onLogout}>{t('topBar.signOut')}</button>}
             {is3DAvailable && (
               <button className={s.mobileAction} onClick={handleToggleGraph}>
                 {graphMode === '2d' ? t('topBar.switchTo3d') : t('topBar.switchTo2d')}

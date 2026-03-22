@@ -37,10 +37,6 @@
 }
 .pmaiden { font-size: 13px; color: var(--text-dim); font-style: italic; margin-bottom: 6px; }
 .pdates { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
-.branchBadge {
-  display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
-  border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: .02em; margin-bottom: 12px;
-}
 .psect {
   font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
   color: var(--text-muted); margin: 14px 0 8px; padding-bottom: 5px;
@@ -59,6 +55,25 @@
 .tabBtn:hover { border-color: var(--green); }
 .tabBtnActive {
   background: var(--green); border-color: var(--green); color: #fff;
+}
+.claimCard {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(61, 124, 71, 0.22);
+  background: linear-gradient(180deg, rgba(61, 124, 71, 0.1), rgba(240, 235, 226, 0.9));
+  margin-bottom: 12px;
+}
+.claimTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.claimBody {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin-bottom: 10px;
 }
 .rels { display: flex; flex-direction: column; gap: 5px; }
 .rchip {
@@ -122,6 +137,7 @@
   display: flex; gap: 8px; margin-top: 10px;
 }
 .primaryAction, .secondaryAction {
+  display: block; width: 100%; box-sizing: border-box;
   flex: 1; min-height: 44px; border-radius: 8px; font-family: 'Inter', sans-serif;
   font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--green);
 }
@@ -195,6 +211,94 @@
   composes: storyInput;
   min-height: 80px; resize: vertical;
 }
+.dialogBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  background: rgba(45, 42, 38, 0.22);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.dialogCard {
+  width: min(420px, 100%);
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 16px 42px rgba(45, 42, 38, 0.18);
+}
+.dialogTitle {
+  font-family: 'Playfair Display', serif;
+  font-size: 24px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.dialogBody {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+.dialogLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.dialogInput {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+}
+.dialogInput:focus {
+  outline: none;
+  border-color: var(--green);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--green-bg);
+}
+.dialogHelp {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.dialogActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.dialogPrimary,
+.dialogSecondary {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dialogPrimary {
+  border: 1px solid var(--green);
+  background: var(--green);
+  color: #fff;
+}
+.dialogSecondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+}
 
 /* ── Mobile ── */
 @media (max-width: 768px) {
@@ -207,4 +311,7 @@
   .rchipBtn { font-size: 10px; padding: 3px 6px; }
   .summaryGrid { grid-template-columns: 1fr; }
   .actionRow { flex-direction: column; }
+  .dialogBackdrop { align-items: flex-end; padding: 12px; }
+  .dialogCard { width: 100%; padding: 18px; border-radius: 16px 16px 12px 12px; }
+  .dialogActions { flex-direction: column-reverse; }
 }

@@ -2,6 +2,7 @@ import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import cryptoRandomString from 'crypto-random-string';
 import pool from '../db/pool.js';
+import { nameScore } from './duplicates.js';
 
 const scryptAsync = promisify(scrypt);
 
@@ -26,6 +27,7 @@ export async function verifyPassword(password, stored) {
 
 const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EXISTING_ACCOUNT_MAGIC_LINK_NAME_SCORE = 72;
 
 /**
  * Create or find user by email, generate a magic-link token.
@@ -35,15 +37,47 @@ export async function createMagicLink(email, options = {}) {
   const normalizedEmail = email.toLowerCase().trim();
   const normalizedDisplayName = options.displayName?.trim() || null;
 
-  // Upsert user
-  const { rows: [user] } = await pool.query(
-    `INSERT INTO users (email, display_name) VALUES ($1, $2)
-     ON CONFLICT (email) DO UPDATE SET
-       email = EXCLUDED.email,
-       display_name = COALESCE(NULLIF($2, ''), users.display_name)
-     RETURNING *`,
-    [normalizedEmail, normalizedDisplayName]
+  const { rows: existingUsers } = await pool.query(
+    `SELECT *
+     FROM users
+     WHERE email = $1`,
+    [normalizedEmail]
   );
+
+  const existingUser = existingUsers[0] || null;
+
+  if (existingUser?.display_name) {
+    if (!normalizedDisplayName) {
+      throw Object.assign(new Error('Enter the name associated with this account before requesting a sign-in link'), { status: 400 });
+    }
+
+    const similarity = nameScore(normalizedDisplayName, existingUser.display_name);
+    if (similarity < EXISTING_ACCOUNT_MAGIC_LINK_NAME_SCORE) {
+      throw Object.assign(new Error('That name does not match the account for this email address closely enough'), { status: 400 });
+    }
+  }
+
+  let user;
+
+  if (existingUser) {
+    const { rows } = await pool.query(
+      `UPDATE users
+       SET email = $2,
+           display_name = COALESCE(users.display_name, NULLIF($3, ''))
+       WHERE id = $1
+       RETURNING *`,
+      [existingUser.id, normalizedEmail, normalizedDisplayName]
+    );
+    [user] = rows;
+  } else {
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, display_name)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [normalizedEmail, normalizedDisplayName]
+    );
+    [user] = rows;
+  }
 
   // Generate token
   const token = cryptoRandomString({ length: 64, type: 'url-safe' });
@@ -58,6 +92,7 @@ export async function createMagicLink(email, options = {}) {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const params = new URLSearchParams({ token });
   if (options.claimToken) params.set('inviteToken', options.claimToken);
+  if (options.treeId) params.set('treeId', options.treeId);
   const magicLink = `${frontendUrl}/auth/verify?${params.toString()}`;
 
   return { user, token, magicLink };

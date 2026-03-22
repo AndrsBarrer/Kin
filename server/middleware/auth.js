@@ -73,7 +73,7 @@ export async function getTreeRole(treeId, userId) {
 
 export async function getProfilePermissionContext(profileId, userId) {
   const { rows } = await pool.query(
-    `SELECT p.id, p.tree_id, p.claimed_by, p.first_name, p.last_name,
+    `SELECT p.id, p.tree_id, p.claimed_by, p.first_name, p.last_name, p.metadata,
             tm.role AS tree_role
      FROM profiles p
      LEFT JOIN tree_members tm ON tm.tree_id = p.tree_id AND tm.user_id = $2

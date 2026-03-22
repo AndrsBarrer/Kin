@@ -2,7 +2,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BRANCH, getRels } from '../data/familyData';
-import { relationships as relApi, facts as factsApi, stories as storiesApi } from '../api/client';
+import { relationships as relApi, facts as factsApi, profiles as profilesApi, stories as storiesApi, trees as treesApi } from '../api/client';
 import { useTree } from '../context/TreeContext';
 import { toast } from './Toast';
 import s from './DetailPanel.module.css';
@@ -10,6 +10,9 @@ import s from './DetailPanel.module.css';
 export default function DetailPanel({
   person, people, rels, onClose, onViewPerson, onFocusPerson, onPhotoChange,
   onRelationshipAdded, onRelationshipRemoved,
+  initialTab,
+  onEditPerson,
+  onProfileClaimed,
 }) {
   const { t, i18n } = useTranslation();
   const fileRef = useRef(null);
@@ -23,7 +26,12 @@ export default function DetailPanel({
   const [newStory, setNewStory] = useState({ title: '', body: '' });
   const [addingStory, setAddingStory] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
-  const { activeTreeId } = useTree();
+  const [treeInvite, setTreeInvite] = useState(null);
+  const [creatingTreeInvite, setCreatingTreeInvite] = useState(false);
+  const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [claimEmail, setClaimEmail] = useState('');
+  const [claimingProfile, setClaimingProfile] = useState(false);
+  const { activeTreeId, currentUser, currentUserId, isAuthenticated } = useTree();
 
   // Load stories when person changes
   useEffect(() => {
@@ -31,8 +39,11 @@ export default function DetailPanel({
     setStoryList([]);
     setAddingStory(false);
     setNewStory({ title: '', body: '' });
-    setActiveTab('profile');
+    setActiveTab(initialTab === 'explore' ? 'explore' : 'profile');
     setStoriesLoaded(false);
+    setTreeInvite(null);
+    setClaimDialogOpen(false);
+    setClaimEmail('');
     storiesApi.list(person.id)
       .then((stories) => {
         setStoryList(stories);
@@ -42,7 +53,7 @@ export default function DetailPanel({
         setStoryList([]);
         setStoriesLoaded(true);
       });
-  }, [person]);
+  }, [currentUser?.email, initialTab, person]);
 
   if (!person) return null;
 
@@ -52,12 +63,14 @@ export default function DetailPanel({
   const publicUrl = person.public_slug ? `${window.location.origin}/p/${person.public_slug}` : null;
   const inviteUrl = person.invite_token ? `${window.location.origin}/join?token=${person.invite_token}` : null;
   const publicProfileUrl = person.public_slug ? `${window.location.origin}/p/${person.public_slug}` : null;
+  const treeAccessUrl = activeTreeId ? `${window.location.origin}/tree/${activeTreeId}` : null;
   const publicPhotoCount = person.photo ? 1 : 0;
   const publicDocCount = person.docs?.length || 0;
+  const hasClaimedProfile = Boolean(currentUserId && people.some((candidate) => candidate.claimed_by === currentUserId));
+  const canSelfClaimProfile = Boolean(isAuthenticated && currentUser && !person.claimed_by && !hasClaimedProfile);
   const dates = person.birth
     ? (person.death ? `${person.birth} – ${person.death} · ${t('detailPanel.deceased')}` : t('detailPanel.born', { year: person.birth }))
     : '';
-  const branchLabel = person.branch ? t(`addPersonModal.branchOptions.${person.branch}`, { defaultValue: br?.label || person.branch }) : person.branch;
   const getRelationshipLabel = (relation) => {
     if (relation.type === 'parent') return t('detailPanel.parentOf', { name: person.firstName });
     if (relation.type === 'child') return t('detailPanel.childOf', { name: person.firstName });
@@ -106,6 +119,22 @@ export default function DetailPanel({
       toast(t('detailPanel.copyFailed'), 'error');
       return false;
     }
+  };
+
+  const shareContent = async ({ title, text, url, fallbackValue, fallbackMessage }) => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+        return true;
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          return false;
+        }
+        console.warn('[Kin] Native share failed, falling back to copy:', err);
+      }
+    }
+
+    return copyText(fallbackValue || url || text, fallbackMessage || t('detailPanel.shareFallbackCopied'));
   };
 
   const handleUpload = () => fileRef.current?.click();
@@ -180,6 +209,46 @@ export default function DetailPanel({
     }
   };
 
+  const handleCreateTreeInvite = async () => {
+    if (!activeTreeId) return;
+
+    setCreatingTreeInvite(true);
+    try {
+      const result = await treesApi.createAccessCode(activeTreeId);
+      setTreeInvite(result);
+      toast(t('detailPanel.treeAccessCodeReady'), 'info');
+    } catch (err) {
+      console.error('[Kin] Failed to create tree access code:', err);
+      toast(err.message || t('detailPanel.treeAccessFailed'), 'error');
+    } finally {
+      setCreatingTreeInvite(false);
+    }
+  };
+
+  const handleClaimProfile = async () => {
+    const normalizedEmail = claimEmail.trim().toLowerCase();
+    const expectedEmail = String(currentUser?.email || '').trim().toLowerCase();
+
+    if (!normalizedEmail || normalizedEmail !== expectedEmail) {
+      toast(t('detailPanel.claimProfileEmailMismatch'), 'error');
+      return;
+    }
+
+    setClaimingProfile(true);
+    try {
+      await profilesApi.claim(person.id, normalizedEmail);
+      onProfileClaimed?.(person.id, currentUserId);
+      setClaimDialogOpen(false);
+      setClaimEmail('');
+      toast(t('detailPanel.claimProfileSuccess', { name: person.firstName }), 'success');
+    } catch (err) {
+      console.error('[Kin] Failed to claim profile directly:', err);
+      toast(err.message || t('detailPanel.claimProfileFailed'), 'error');
+    } finally {
+      setClaimingProfile(false);
+    }
+  };
+
   // People available for new connections (exclude self and already-connected)
   const connectedIds = new Set(relations.map(r => r.id));
   const spouseIds = new Set(
@@ -209,9 +278,22 @@ export default function DetailPanel({
         <div className={s.pname}>{person.firstName} {person.lastName}</div>
         {person.maiden && <div className={s.pmaiden}>née {person.maiden}</div>}
         <div className={s.pdates}>{dates}</div>
-        <div className={s.branchBadge} style={{ background: br?.bg || '#eee', color: col }}>
-          {branchLabel}
-        </div>
+        {canSelfClaimProfile && (
+          <div className={s.claimCard}>
+            <div className={s.claimTitle}>{t('detailPanel.claimProfilePrompt')}</div>
+            <div className={s.claimBody}>{t('detailPanel.claimProfileBody')}</div>
+            <button
+              type="button"
+              className={s.primaryAction}
+              onClick={() => {
+                setClaimEmail('');
+                setClaimDialogOpen(true);
+              }}
+            >
+              {t('detailPanel.claimProfileAction')}
+            </button>
+          </div>
+        )}
         <div className={s.tabRow} role="tablist" aria-label={t('detailPanel.personDetailsViews')}>
           <button
             className={`${s.tabBtn} ${activeTab === 'profile' ? s.tabBtnActive : ''}`}
@@ -233,6 +315,19 @@ export default function DetailPanel({
 
         {activeTab === 'profile' && (
           <>
+            {person.isOwner && (
+              <div className={s.claimCard}>
+                <div className={s.claimTitle}>{t('detailPanel.editProfileTitle')}</div>
+                <div className={s.claimBody}>{t('detailPanel.editProfileBody')}</div>
+                <button
+                  type="button"
+                  className={s.primaryAction}
+                  onClick={() => onEditPerson?.(person)}
+                >
+                  {t('detailPanel.editProfileAction')}
+                </button>
+              </div>
+            )}
             <div className={s.psect}>{t('detailPanel.biography')}</div>
             <div className={s.pbio}>{person.bio || t('detailPanel.noBiography')}</div>
 
@@ -485,6 +580,18 @@ export default function DetailPanel({
                     >
                       {t('detailPanel.copyLink')}
                     </button>
+                    <button
+                      className={s.secondaryAction}
+                      onClick={() => shareContent({
+                        title: t('detailPanel.sharePublicTitle', { name: `${person.firstName} ${person.lastName}`.trim() }),
+                        text: t('detailPanel.sharePublicText', { name: `${person.firstName} ${person.lastName}`.trim() }),
+                        url: publicUrl,
+                        fallbackValue: publicUrl,
+                        fallbackMessage: t('detailPanel.publicLinkCopied'),
+                      })}
+                    >
+                      {t('common.share')}
+                    </button>
                   </div>
                 </>
               ) : (
@@ -569,6 +676,19 @@ export default function DetailPanel({
               >
                 {copied ? `✓ ${t('common.copied')}` : t('common.copy')}
               </button>
+              <button
+                className={s.rchipBtn}
+                type="button"
+                onClick={() => shareContent({
+                  title: t('detailPanel.shareInviteTitle'),
+                  text: t('detailPanel.shareInviteText', { name: person.firstName }),
+                  url: inviteUrl,
+                  fallbackValue: inviteUrl,
+                  fallbackMessage: t('common.copied'),
+                })}
+              >
+                {t('common.share')}
+              </button>
             </div>
           </>
         )}
@@ -602,10 +722,121 @@ export default function DetailPanel({
                 className={s.rchipBtn}
                 onClick={() => copyText(publicProfileUrl, t('detailPanel.publicUrlCopied'))}
               >{t('common.copy')}</button>
+              <button
+                className={s.rchipBtn}
+                type="button"
+                onClick={() => shareContent({
+                  title: t('detailPanel.sharePublicTitle', { name: `${person.firstName} ${person.lastName}`.trim() }),
+                  text: t('detailPanel.sharePublicText', { name: `${person.firstName} ${person.lastName}`.trim() }),
+                  url: publicProfileUrl,
+                  fallbackValue: publicProfileUrl,
+                  fallbackMessage: t('detailPanel.publicUrlCopied'),
+                })}
+              >{t('common.share')}</button>
             </div>
           </>
         )}
+        {treeAccessUrl && (
+          <>
+            <div className={s.psect}>{t('detailPanel.treeAccess')}</div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, lineHeight: 1.6 }}>
+              {t('detailPanel.treeAccessDescription')}
+            </p>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+              <input
+                readOnly
+                value={treeAccessUrl}
+                style={{
+                  flex: 1, padding: '7px 10px', fontSize: 12, borderRadius: 6,
+                  border: '1px solid var(--border)', background: 'var(--surface2)',
+                  fontFamily: 'monospace', color: 'var(--text-dim)',
+                }}
+                onClick={e => e.target.select()}
+              />
+              <button className={s.rchipBtn} onClick={() => copyText(treeAccessUrl, t('detailPanel.treeLinkCopied'))}>{t('common.copy')}</button>
+              <button
+                className={s.rchipBtn}
+                type="button"
+                onClick={() => shareContent({
+                  title: t('detailPanel.shareTreeTitle'),
+                  text: t('detailPanel.shareTreeText'),
+                  url: treeAccessUrl,
+                  fallbackValue: treeAccessUrl,
+                  fallbackMessage: t('detailPanel.treeLinkCopied'),
+                })}
+              >{t('common.share')}</button>
+            </div>
+            <button className={s.uploadBtn} style={{ marginTop: 0 }} onClick={handleCreateTreeInvite} disabled={creatingTreeInvite}>
+              {creatingTreeInvite ? t('detailPanel.creatingTreeAccessCode') : t('detailPanel.createTreeAccessCode')}
+            </button>
+            {treeInvite && (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>
+                  {t('detailPanel.treeAccessCode')}
+                </div>
+                <div style={{ fontFamily: 'monospace', fontSize: 18, color: 'var(--accent)', marginBottom: 6 }}>
+                  {treeInvite.code}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 8 }}>
+                  {t('detailPanel.treeAccessCodeExpires', { date: new Date(treeInvite.expiresAt).toLocaleString(i18n.language) })}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button className={s.rchipBtn} onClick={() => copyText(treeInvite.code, t('detailPanel.treeCodeCopied'))}>{t('common.copy')}</button>
+                  <button
+                    className={s.rchipBtn}
+                    type="button"
+                    onClick={() => shareContent({
+                      title: t('detailPanel.shareTreeCodeTitle'),
+                      text: t('detailPanel.shareTreeCodeText', { code: treeInvite.code, url: treeAccessUrl }),
+                      url: treeAccessUrl,
+                      fallbackValue: `${t('detailPanel.shareTreeCodeText', { code: treeInvite.code, url: treeAccessUrl })} ${treeAccessUrl}`,
+                      fallbackMessage: t('detailPanel.treeCodeCopied'),
+                    })}
+                  >{t('common.share')}</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
+      {claimDialogOpen && (
+        <div className={s.dialogBackdrop} role="presentation">
+          <div className={s.dialogCard} role="dialog" aria-modal="true" aria-labelledby="claim-profile-title">
+            <div id="claim-profile-title" className={s.dialogTitle}>{t('detailPanel.claimProfileDialogTitle')}</div>
+            <div className={s.dialogBody}>{t('detailPanel.claimProfileDialogBody', { name: `${person.firstName} ${person.lastName}`.trim() })}</div>
+            <label className={s.dialogLabel} htmlFor="claim-profile-email">{t('detailPanel.claimProfileEmailLabel')}</label>
+            <input
+              id="claim-profile-email"
+              className={s.dialogInput}
+              type="email"
+              value={claimEmail}
+              onChange={(event) => setClaimEmail(event.target.value)}
+              autoFocus
+            />
+            <div className={s.dialogActions}>
+              <button
+                type="button"
+                className={s.dialogSecondary}
+                onClick={() => {
+                  setClaimDialogOpen(false);
+                  setClaimEmail('');
+                }}
+                disabled={claimingProfile}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className={s.dialogPrimary}
+                onClick={handleClaimProfile}
+                disabled={claimingProfile}
+              >
+                {claimingProfile ? t('detailPanel.saving') : t('detailPanel.claimProfileConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

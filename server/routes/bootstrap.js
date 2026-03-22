@@ -12,6 +12,8 @@ const router = Router();
  */
 router.post('/', async (req, res, next) => {
   try {
+    let bootstrapUser = req.user || null;
+
     // If the user is already authenticated and has trees, just return them
     if (req.user) {
       const { rows: trees } = await pool.query(
@@ -31,30 +33,6 @@ router.post('/', async (req, res, next) => {
         `SELECT id FROM trees WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1`
       );
       if (existingTrees.length > 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          const { rows: localUsers } = await pool.query(
-            `SELECT u.id, t.id AS tree_id
-             FROM users u
-             JOIN tree_members tm ON tm.user_id = u.id
-             JOIN trees t ON t.id = tm.tree_id
-             WHERE u.email LIKE '%@kin.local'
-               AND t.deleted_at IS NULL
-             ORDER BY tm.joined_at ASC
-             LIMIT 1`
-          );
-
-          if (localUsers.length > 0) {
-            const sessionToken = createSessionToken(localUsers[0].id);
-            return res.json({
-              tree: { id: localUsers[0].tree_id },
-              sessionToken,
-              userId: localUsers[0].id,
-              alreadySetUp: true,
-              recoveredSession: true,
-            });
-          }
-        }
-
         return res.status(409).json({
           error: 'Bootstrap is only available before the first tree is created',
         });
@@ -65,33 +43,35 @@ router.post('/', async (req, res, next) => {
     try {
       await client.query('BEGIN');
 
-      // Create a local user (no email required)
-      const { rows: [user] } = await client.query(
-        `INSERT INTO users (email, display_name)
-         VALUES ($1, $2) RETURNING *`,
-        [`local-${Date.now()}@kin.local`, 'Family Historian']
-      );
+      if (!bootstrapUser) {
+        // Create a local user (no email required)
+        const { rows: [user] } = await client.query(
+          `INSERT INTO users (email, display_name)
+           VALUES ($1, $2) RETURNING *`,
+          [`local-${Date.now()}@kin.local`, 'Family Historian']
+        );
+        bootstrapUser = user;
+      }
 
       // Create the default tree
       const { rows: [tree] } = await client.query(
         `INSERT INTO trees (name, description, created_by)
          VALUES ($1, $2, $3) RETURNING *`,
-        ['My Family Tree', 'Created automatically on first launch', user.id]
+        ['My Family Tree', 'Created automatically on first launch', bootstrapUser.id]
       );
 
       // Make the user an admin of the tree
       await client.query(
         `INSERT INTO tree_members (tree_id, user_id, role)
          VALUES ($1, $2, 'admin')`,
-        [tree.id, user.id]
+        [tree.id, bootstrapUser.id]
       );
 
       await client.query('COMMIT');
 
-      // Create a session token
-      const sessionToken = createSessionToken(user.id);
+      const sessionToken = req.user ? null : createSessionToken(bootstrapUser.id);
 
-      res.status(201).json({ tree, sessionToken, userId: user.id });
+      res.status(201).json({ tree, sessionToken, userId: bootstrapUser.id });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

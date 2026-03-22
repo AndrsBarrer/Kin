@@ -2,12 +2,39 @@ import { Router } from 'express';
 import cryptoRandomString from 'crypto-random-string';
 import pool from '../db/pool.js';
 import { requireAuth, requireTreeMember, getProfilePermissionContext, canManageClaimedProfile } from '../middleware/auth.js';
-import { aggregateFacts, addFact } from '../services/facts.js';
+import { aggregateFacts, addFact, updateFact, deleteFact } from '../services/facts.js';
 import { applyPrivacy } from '../middleware/privacy.js';
-import { findDuplicates } from '../services/duplicates.js';
+import { findDuplicates, nameScore } from '../services/duplicates.js';
 import { logAction } from '../services/audit.js';
 
 const router = Router();
+
+function normalizeNameParts(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function profileNameMatchesUser(userDisplayName, profile) {
+  const userParts = normalizeNameParts(userDisplayName);
+  if (userParts.length === 0) return false;
+
+  const firstName = String(profile.first_name || '');
+  const lastName = String(profile.last_name || '');
+  const profileFullName = `${firstName} ${lastName}`.trim();
+  const fullNameScore = nameScore(userParts.join(' '), profileFullName);
+  const firstNameScore = nameScore(userParts[0], firstName);
+  const lastPart = userParts.length > 1 ? userParts[userParts.length - 1] : '';
+  const lastNameScore = lastPart ? nameScore(lastPart, lastName) : 0;
+
+  if (fullNameScore >= 72) return true;
+  if (firstNameScore >= 88 && !lastPart) return true;
+  if (firstNameScore >= 82 && lastNameScore >= 55) return true;
+  return false;
+}
 
 async function getProfileMedia(profileId) {
   const { rows } = await pool.query(
@@ -25,6 +52,37 @@ function getProfilePhotoUrl(mediaRows) {
   return mediaRows.find((item) => item.type === 'photo' && item.is_profile_photo)?.url
     || mediaRows.find((item) => item.type === 'photo')?.url
     || null;
+}
+
+async function syncSingleValueFact(profileId, factType, rawValue, userId) {
+  const normalizedValue = rawValue == null ? null : String(rawValue).trim();
+  const nextValue = normalizedValue ? normalizedValue : null;
+  const existingFacts = (await pool.query(
+    `SELECT id
+     FROM facts
+     WHERE profile_id = $1
+       AND fact_type = $2
+       AND deleted_at IS NULL
+     ORDER BY created_at`,
+    [profileId, factType]
+  )).rows;
+
+  if (!nextValue) {
+    for (const fact of existingFacts) {
+      await deleteFact(fact.id);
+    }
+    return;
+  }
+
+  if (existingFacts.length === 0) {
+    await addFact(profileId, { factType, value: nextValue, privacy: 'family' }, userId);
+    return;
+  }
+
+  await updateFact(existingFacts[0].id, { value: nextValue, privacy: 'family' });
+  for (const fact of existingFacts.slice(1)) {
+    await deleteFact(fact.id);
+  }
 }
 
 /**
@@ -76,6 +134,7 @@ router.get('/public/:slug', async (req, res, next) => {
       isLiving: profile.is_living,
       facts: allFacts,
       publicSlug: profile.public_slug,
+      isOwner: Boolean(req.user && profile.claimed_by === req.user.id),
       profilePhotoUrl: getProfilePhotoUrl(media),
       stories,
       media,
@@ -250,21 +309,55 @@ router.put('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Only the profile owner, admin, or steward can update a claimed profile' });
     }
 
+    req.treeRole = profile.tree_role;
+
+    const nextMetadata = {
+      ...(profile.metadata || {}),
+      ...(metadata?.branch ? { branch: metadata.branch } : {}),
+    };
+    const hasGender = Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, 'gender');
+    const hasBirth = Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, 'birth');
+    const hasDeath = Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, 'death');
+    const hasBio = Boolean(metadata) && Object.prototype.hasOwnProperty.call(metadata, 'bio');
+
     const { rows } = await pool.query(
       `UPDATE profiles
        SET first_name = COALESCE($2, first_name),
            last_name  = COALESCE($3, last_name),
-           maiden_name = COALESCE($4, maiden_name),
+           maiden_name = $4,
            is_living = COALESCE($5, is_living),
            metadata = COALESCE($6, metadata)
        WHERE id = $1 AND deleted_at IS NULL
        RETURNING *`,
-      [req.params.id, firstName, lastName, maidenName, isLiving, metadata]
+      [req.params.id, firstName, lastName, maidenName, isLiving, nextMetadata]
     );
 
     if (rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
+    if (hasGender) {
+      await syncSingleValueFact(req.params.id, 'gender', metadata.gender, req.user.id);
+    }
+    if (hasBirth) {
+      await syncSingleValueFact(req.params.id, 'birth_year', metadata.birth != null ? String(metadata.birth) : null, req.user.id);
+    }
+    if (hasDeath) {
+      await syncSingleValueFact(req.params.id, 'death_year', metadata.death != null ? String(metadata.death) : null, req.user.id);
+    }
+    if (hasBio) {
+      await syncSingleValueFact(req.params.id, 'biography', metadata.bio, req.user.id);
+    }
+
     logAction(req.user.id, 'profile.update', 'profile', req.params.id, null, { firstName, lastName, maidenName });
-    res.json(rows[0]);
+    const updatedProfile = rows[0];
+    const allFacts = await aggregateFacts(updatedProfile.id);
+    const visibleFacts = applyPrivacy(req, updatedProfile, allFacts);
+    const media = await getProfileMedia(updatedProfile.id);
+
+    res.json({
+      ...updatedProfile,
+      facts: visibleFacts,
+      media,
+      profile_photo_url: getProfilePhotoUrl(media),
+    });
   } catch (err) {
     next(err);
   }
@@ -276,10 +369,18 @@ router.put('/:id', requireAuth, async (req, res, next) => {
  */
 router.post('/:id/claim', requireAuth, async (req, res, next) => {
   try {
+    const normalizedEmail = String(req.body?.email || '').trim().toLowerCase();
     const profile = await getProfilePermissionContext(req.params.id, req.user.id);
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
     if (!profile.tree_role) {
       return res.status(403).json({ error: 'You must be a tree member to claim this profile' });
+    }
+    if (normalizedEmail && normalizedEmail !== String(req.user.email || '').trim().toLowerCase()) {
+      return res.status(400).json({ error: 'Claim email must match the signed-in account email' });
+    }
+    const canBypassNameMatch = profile.tree_role === 'admin' || profile.tree_role === 'steward';
+    if (!canBypassNameMatch && !profileNameMatchesUser(req.user.display_name, profile)) {
+      return res.status(400).json({ error: 'Signed-in name does not match this profile closely enough to claim it' });
     }
 
     const { rows } = await pool.query(

@@ -1,24 +1,34 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { auth, join, setToken } from '../api/client';
+import { useTree } from '../context/TreeContext';
 
 export default function AuthVerifyPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { refreshSession } = useTree();
   const [status, setStatus] = useState('verifying');
   const [message, setMessage] = useState('');
+  const attemptedTokenRef = useRef(null);
+
+  const token = searchParams.get('token');
+  const inviteToken = searchParams.get('inviteToken');
+  const treeId = searchParams.get('treeId');
 
   useEffect(() => {
-    const token = searchParams.get('token');
-    const inviteToken = searchParams.get('inviteToken');
-
     if (!token) {
       setStatus('error');
       setMessage(t('authVerify.missingToken'));
       return;
     }
+
+    if (attemptedTokenRef.current === token) {
+      return;
+    }
+
+    attemptedTokenRef.current = token;
 
     let cancelled = false;
 
@@ -27,16 +37,18 @@ export default function AuthVerifyPage() {
         const result = await auth.verify(token);
         if (cancelled) return;
         setToken(result.token);
+        await refreshSession({ syncTrees: true });
 
         if (inviteToken) {
           setStatus('claiming');
           await join.claimAuthenticated(inviteToken);
           if (cancelled) return;
+          await refreshSession({ syncTrees: true });
         }
 
         setStatus('done');
         setTimeout(() => {
-          if (!cancelled) navigate('/', { replace: true });
+          if (!cancelled) navigate(treeId ? `/tree/${treeId}` : '/', { replace: true });
         }, 900);
       } catch (err) {
         if (cancelled) return;
@@ -47,7 +59,7 @@ export default function AuthVerifyPage() {
 
     run();
     return () => { cancelled = true; };
-  }, [navigate, searchParams, t]);
+  }, [inviteToken, navigate, refreshSession, t, token, treeId]);
 
   const body = status === 'verifying'
     ? t('authVerify.verifying')

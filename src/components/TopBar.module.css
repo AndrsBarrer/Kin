@@ -89,6 +89,98 @@
 .mobileMenu {
   display: none;
 }
+.profileMenuWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.profileMenuButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.profileMenuButton:hover {
+  border-color: var(--border-strong);
+  background: var(--surface2);
+}
+.profileMenuAvatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green-bg);
+  color: var(--green);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+.profileMenuLabel {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profileMenuCaret {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.profileMenuDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 14px 36px rgba(45,42,38,0.14);
+  display: grid;
+  gap: 4px;
+  z-index: 220;
+}
+.profileMenuHeading {
+  padding: 8px 10px 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.profileMenuItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.profileMenuItem:hover {
+  background: var(--surface2);
+}
 .mobileAction,
 .mobileActionPrimary,
 .mobileActionActive {
@@ -178,6 +270,7 @@
   .searchWrap { min-width: 0; max-width: none; }
   .searchInput { font-size: 13px; padding: 6px 28px 6px 30px; }
   .desktopActions { display: none; }
+  .profileMenuWrap { display: none; }
   .mobileMenuBtn { display: inline-flex; align-items: center; justify-content: center; }
   .mobileMenuBackdrop {
     display: block; position: fixed; inset: 56px 0 0; z-index: 115;

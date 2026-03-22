@@ -3,7 +3,7 @@ import pool from '../db/pool.js';
 /**
  * Simple Levenshtein distance for fuzzy name matching.
  */
-function levenshtein(a, b) {
+export function levenshtein(a, b) {
   const an = a.length, bn = b.length;
   const d = Array.from({ length: an + 1 }, (_, i) => {
     const row = new Array(bn + 1);
@@ -23,7 +23,7 @@ function levenshtein(a, b) {
 /**
  * Compute a 0-100 similarity score between two names.
  */
-function nameScore(input, candidate) {
+export function nameScore(input, candidate) {
   const a = (input || '').toLowerCase().trim();
   const b = (candidate || '').toLowerCase().trim();
   if (!a || !b) return 0;

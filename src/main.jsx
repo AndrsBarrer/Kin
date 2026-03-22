@@ -7,12 +7,14 @@ import App from './App.jsx'
 import AuthVerifyPage from './components/AuthVerifyPage.jsx'
 import JoinPage from './components/JoinPage.jsx'
 import PublicProfile from './components/PublicProfile.jsx'
+import TreeAccessPage from './components/TreeAccessPage.jsx'
 
 createRoot(document.getElementById('root')).render(
   <BrowserRouter>
     <TreeProvider>
       <Routes>
         <Route path="/" element={<App />} />
+        <Route path="/tree/:treeId" element={<TreeAccessPage />} />
         <Route path="/auth/verify" element={<AuthVerifyPage />} />
         <Route path="/join" element={<JoinPage />} />
         <Route path="/p/:slug" element={<PublicProfile />} />

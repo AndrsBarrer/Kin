@@ -9,15 +9,15 @@ function sanitizeYear(value) {
   return value.replace(/\D/g, '').slice(0, 4);
 }
 
-export default function AddPersonModal({ activeTreeId, treeLoading, people, onSave, onClose }) {
+export default function AddPersonModal({ activeTreeId, treeLoading, people, onSave, onClose, mode = 'create', initialValues = null }) {
   const { t } = useTranslation();
+  const isEditMode = mode === 'edit';
   const [fn, setFn] = useState('');
   const [ln, setLn] = useState('');
   const [mn, setMn] = useState('');
   const [gn, setGn] = useState('M');
   const [by, setBy] = useState('');
   const [dy, setDy] = useState('');
-  const [br, setBr] = useState('paternal');
   const [bio, setBio] = useState('');
   const [p1, setP1] = useState('');
   const [p2, setP2] = useState('');
@@ -31,8 +31,8 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   const [mobileViewportHeight, setMobileViewportHeight] = useState(null);
   const dupeTimer = useRef(null);
   const modalRef = useRef(null);
-  const canSubmit = Boolean(activeTreeId) && !treeLoading;
-  const hasRelationshipStep = people.length > 0;
+  const canSubmit = isEditMode || (Boolean(activeTreeId) && !treeLoading);
+  const hasRelationshipStep = !isEditMode && people.length > 0;
   const mobileSteps = [
     {
       key: 'identity',
@@ -52,6 +52,21 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   ];
   const activeStep = mobileSteps[Math.min(stepIndex, mobileSteps.length - 1)];
   const isLastStep = stepIndex === mobileSteps.length - 1;
+
+  useEffect(() => {
+    setFn(initialValues?.firstName || '');
+    setLn(initialValues?.lastName || '');
+    setMn(initialValues?.maiden || '');
+    setGn(initialValues?.gender || 'M');
+    setBy(initialValues?.birth ? String(initialValues.birth) : '');
+    setDy(initialValues?.death ? String(initialValues.death) : '');
+    setBio(initialValues?.bio || '');
+    setP1(initialValues?.parent1 || '');
+    setP2(initialValues?.parent2 || '');
+    setSp(initialValues?.spouse || '');
+    setDupes([]);
+    setStepIndex(0);
+  }, [initialValues]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -132,6 +147,10 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
 
   // Live duplicate check with debounce
   useEffect(() => {
+    if (isEditMode) {
+      setDupes([]);
+      return;
+    }
     if (dupeTimer.current) clearTimeout(dupeTimer.current);
     const firstName = fn.trim();
     const lastName = ln.trim();
@@ -148,7 +167,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
       }
     }, 400);
     return () => clearTimeout(dupeTimer.current);
-  }, [fn, ln, activeTreeId]);
+  }, [activeTreeId, fn, isEditMode, ln]);
 
   const validateIdentityStep = () => {
     if (!fn.trim() || !ln.trim()) {
@@ -180,20 +199,25 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
     }
     if (!validateIdentityStep()) return;
     setSaving(true);
-    await onSave({
-      firstName: fn.trim(),
-      lastName: ln.trim(),
-      maiden: mn.trim(),
-      gender: gn,
-      birth: parseInt(by) || null,
-      death: parseInt(dy) || null,
-      branch: br,
-      bio: bio.trim(),
-      parent1: p1 || null,
-      parent2: p2 || null,
-      spouse: sp || null,
-    });
-    onClose();
+    try {
+      const saved = await onSave({
+        firstName: fn.trim(),
+        lastName: ln.trim(),
+        maiden: mn.trim(),
+        gender: gn,
+        birth: parseInt(by) || null,
+        death: parseInt(dy) || null,
+        bio: bio.trim(),
+        parent1: p1 || null,
+        parent2: p2 || null,
+        spouse: sp || null,
+      });
+      if (saved !== false) {
+        onClose();
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleFocusCapture = (event) => {
@@ -214,7 +238,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   return (
     <div className={s.backdrop} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={s.modal} ref={modalRef} style={modalStyle} onFocusCapture={handleFocusCapture}>
-        <h2>{t('addPersonModal.title')}</h2>
+        <h2>{isEditMode ? t('addPersonModal.editTitle') : t('addPersonModal.title')}</h2>
         {isMobile && (
           <div className={s.stepper}>
             <div className={s.stepMeta}>
@@ -284,15 +308,6 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
               </div>
             </div>
             <div className={s.fg}>
-              <label>{t('addPersonModal.branch')}</label>
-              <select value={br} onChange={e => setBr(e.target.value)}>
-                <option value="paternal">{t('addPersonModal.branchOptions.paternal')}</option>
-                <option value="maternal">{t('addPersonModal.branchOptions.maternal')}</option>
-                <option value="sibling">{t('addPersonModal.branchOptions.sibling')}</option>
-                <option value="married">{t('addPersonModal.branchOptions.married')}</option>
-              </select>
-            </div>
-            <div className={s.fg}>
               <label>{t('addPersonModal.biography')}</label>
               <textarea placeholder={t('addPersonModal.placeholders.biography')} value={bio} onChange={e => setBio(e.target.value)} />
             </div>
@@ -338,7 +353,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
               disabled={saving || !canSubmit}
             >
               {isLastStep
-                ? (saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson'))
+                ? (saving ? (isEditMode ? t('addPersonModal.updating') : t('addPersonModal.saving')) : (isEditMode ? t('addPersonModal.updatePerson') : t('addPersonModal.addPerson')))
                 : t('common.continue')}
             </button>
           </div>
@@ -346,7 +361,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
           <div className={s.actions}>
             <button className={s.cancelBtn} onClick={onClose} disabled={saving}>{t('common.cancel')}</button>
             <button className={s.saveBtn} onClick={handleSave} disabled={saving || !canSubmit}>
-              {saving ? t('addPersonModal.saving') : t('addPersonModal.addPerson')}
+              {saving ? (isEditMode ? t('addPersonModal.updating') : t('addPersonModal.saving')) : (isEditMode ? t('addPersonModal.updatePerson') : t('addPersonModal.addPerson'))}
             </button>
           </div>
         )}

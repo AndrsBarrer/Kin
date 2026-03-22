@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { trees as treesApi, bootstrap, setToken, auth } from '../api/client';
 
 const TreeContext = createContext(null);
@@ -14,85 +15,155 @@ export function useTree() {
 }
 
 export function TreeProvider({ children }) {
+  const location = useLocation();
   const [treeList, setTreeList] = useState([]);
-  const [currentUserId, setCurrentUserId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [activeTreeId, setActiveTreeIdState] = useState(
     () => normalizeTreeId(localStorage.getItem('kin_active_tree'))
   );
   const [loading, setLoading] = useState(true);
 
-  function setActiveTreeId(id) {
+  const currentUserId = currentUser?.id || null;
+
+  function syncActiveTree(list) {
+    setTreeList(list);
+    if (list.length === 0) {
+      setActiveTreeId(null);
+      return;
+    }
+
+    const matchingTree = list.find((tree) => normalizeTreeId(tree.id) === activeTreeId);
+    const nextActiveTreeId = matchingTree
+      ? normalizeTreeId(matchingTree.id)
+      : normalizeTreeId(list[0].id);
+
+    if (nextActiveTreeId !== activeTreeId) {
+      setActiveTreeId(nextActiveTreeId);
+      console.log('[Kin] Auto-selected first available tree:', nextActiveTreeId);
+    }
+  }
+
+  const setActiveTreeId = useCallback((id) => {
     const nextId = normalizeTreeId(id);
     setActiveTreeIdState(nextId);
     if (nextId) localStorage.setItem('kin_active_tree', nextId);
     else localStorage.removeItem('kin_active_tree');
-  }
+  }, []);
+
+  const loadTrees = useCallback(async () => {
+    const list = await treesApi.list();
+    syncActiveTree(list);
+    return list;
+  }, [activeTreeId, setActiveTreeId]);
+
+  const refreshSession = useCallback(async (options = {}) => {
+    const { syncTrees = true } = options;
+
+    try {
+      const me = await auth.me();
+      setCurrentUser(me || null);
+      if (syncTrees) {
+        await loadTrees();
+      }
+      return me || null;
+    } catch (err) {
+      if (err.status === 401) {
+        setCurrentUser(null);
+        if (syncTrees) {
+          setTreeList([]);
+          setActiveTreeId(null);
+        }
+        return null;
+      }
+      throw err;
+    }
+  }, [loadTrees, setActiveTreeId]);
+
+  const logout = useCallback(async () => {
+    try {
+      await auth.logout();
+    } catch (_) {}
+
+    setToken(null);
+    setCurrentUser(null);
+    setTreeList([]);
+    setActiveTreeId(null);
+  }, [setActiveTreeId]);
 
   useEffect(() => {
     async function init() {
-      /** After obtaining a tree list, pick the right active tree */
-      function syncActiveTree(list) {
-        setTreeList(list);
-        if (list.length === 0) {
-          setActiveTreeId(null);
-          return;
-        }
-
-        const matchingTree = list.find((tree) => normalizeTreeId(tree.id) === activeTreeId);
-        const nextActiveTreeId = matchingTree
-          ? normalizeTreeId(matchingTree.id)
-          : normalizeTreeId(list[0].id);
-
-        if (nextActiveTreeId !== activeTreeId) {
-          setActiveTreeId(nextActiveTreeId);
-          console.log('[Kin] Auto-selected first available tree:', nextActiveTreeId);
-        }
-      }
+      const allowBootstrap = location.pathname === '/';
+      const isDeferredAuthRoute = location.pathname === '/auth/verify' || location.pathname === '/join';
+      const hasStoredSession = typeof window !== 'undefined' && Boolean(window.localStorage.getItem('kin_token'));
 
       async function doBootstrap() {
         const result = await bootstrap.init();
         if (result.sessionToken) {
           setToken(result.sessionToken);
         }
-        if (result.userId) {
-          setCurrentUserId(result.userId);
-        }
-        const list = await treesApi.list();
-        syncActiveTree(list);
+        await refreshSession({ syncTrees: true });
+      }
+
+      if (isDeferredAuthRoute && !hasStoredSession) {
+        console.log('[Kin] Deferred auth route detected. Waiting for route-specific sign-in completion.');
+        setLoading(false);
+        return;
       }
 
       try {
-        let list = await treesApi.list();
+        const me = await refreshSession({ syncTrees: false });
+        if (me) {
+          const list = await loadTrees();
+          if (list.length === 0 && allowBootstrap) {
+            console.log('[Kin] Authenticated user has no trees — creating first tree…');
+            await doBootstrap();
+          }
+          return;
+        }
 
-        // If no trees found (first launch or no session), bootstrap
-        if (list.length === 0) {
-          console.log('[Kin] No trees found — bootstrapping…');
+        if (!allowBootstrap) {
+          console.log('[Kin] Auth flow route detected without a session. Waiting for sign-in completion.');
+          return;
+        }
+
+        if (!me) {
+          console.log('[Kin] No authenticated session — attempting first-run bootstrap…');
           await doBootstrap();
-        } else {
-          syncActiveTree(list);
-          // Try to get current user id
-          try {
-            const me = await auth.me();
-            if (me?.id) setCurrentUserId(me.id);
-          } catch (_) {}
         }
       } catch (err) {
-        // If listing trees fails (401), try bootstrap
-        console.warn('[Kin] Tree list failed, attempting bootstrap…', err.message);
-        try {
-          await doBootstrap();
-        } catch (bootstrapErr) {
-          console.error('[Kin] Bootstrap failed:', bootstrapErr.message);
+        if (err.status === 409) {
+          console.log('[Kin] Existing tree detected without an active session. Waiting for sign-in.');
+        } else {
+          console.warn('[Kin] Tree init failed, attempting bootstrap…', err.message);
+          try {
+            await doBootstrap();
+          } catch (bootstrapErr) {
+            if (bootstrapErr.status === 409) {
+              console.log('[Kin] Existing tree detected without an active session. Waiting for sign-in.');
+            } else {
+              console.error('[Kin] Bootstrap failed:', bootstrapErr.message);
+            }
+          }
         }
       } finally {
         setLoading(false);
       }
     }
     init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadTrees, location.pathname, refreshSession]);
 
   return (
-    <TreeContext.Provider value={{ activeTreeId, setActiveTreeId, treeList, loading, currentUserId }}>
+    <TreeContext.Provider value={{
+      activeTreeId,
+      setActiveTreeId,
+      treeList,
+      loading,
+      currentUser,
+      currentUserId,
+      isAuthenticated: Boolean(currentUserId),
+      refreshSession,
+      logout,
+    }}>
       {children}
     </TreeContext.Provider>
   );

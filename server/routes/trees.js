@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { requireAuth, requireTreeMember, requireRole } from '../middleware/auth.js';
+import { issueTreeAccessCode } from '../services/treeAccess.js';
 
 const router = Router();
 
@@ -71,6 +72,18 @@ router.get('/:treeId', requireAuth, requireTreeMember, async (req, res, next) =>
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Tree not found' });
     res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:treeId/access-code', requireAuth, requireTreeMember, async (req, res, next) => {
+  try {
+    const accessCode = await issueTreeAccessCode(req.params.treeId, req.user.id);
+    res.status(201).json({
+      ...accessCode,
+      treeLink: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tree/${req.params.treeId}`,
+    });
   } catch (err) {
     next(err);
   }

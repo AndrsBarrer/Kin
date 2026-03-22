@@ -12,12 +12,12 @@ const router = Router();
  */
 router.post('/magic-link', async (req, res, next) => {
   try {
-    const { email, displayName, claimToken } = req.body;
+    const { email, displayName, claimToken, treeId } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    const { magicLink } = await createMagicLink(email, { displayName, claimToken });
+    const { magicLink } = await createMagicLink(email, { displayName, claimToken, treeId });
 
-    await sendMagicLinkEmail(email, magicLink, { displayName, claimToken });
+    await sendMagicLinkEmail(email, magicLink, { displayName, claimToken, treeId });
 
     res.json({ message: 'Magic link sent. Check your email.' });
   } catch (err) {

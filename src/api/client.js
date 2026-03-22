@@ -27,7 +27,7 @@ async function request(path, options = {}) {
 
 // ── Auth ────────────────────────────────────────────
 export const auth = {
-  sendMagicLink: ({ email, displayName, claimToken } = {}) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email, displayName, claimToken }) }),
+  sendMagicLink: ({ email, displayName, claimToken, treeId } = {}) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email, displayName, claimToken, treeId }) }),
   verify: (token) => request('/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -45,6 +45,7 @@ export const trees = {
   list: () => request('/trees'),
   get: (id) => request(`/trees/${id}`),
   create: (data) => request('/trees', { method: 'POST', body: JSON.stringify(data) }),
+  createAccessCode: (id) => request(`/trees/${id}/access-code`, { method: 'POST' }),
   remove: (id) => request(`/trees/${id}`, { method: 'DELETE' }),
 };
 
@@ -52,9 +53,10 @@ export const trees = {
 export const profiles = {
   list: (treeId) => request(`/profiles?treeId=${encodeURIComponent(treeId)}`),
   get: (id) => request(`/profiles/${id}`),
+  getPublic: (slug) => request(`/profiles/public/${encodeURIComponent(slug)}`),
   create: (data) => request('/profiles', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => request(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  claim: (id) => request(`/profiles/${id}/claim`, { method: 'POST' }),
+  claim: (id, email) => request(`/profiles/${id}/claim`, { method: 'POST', body: JSON.stringify({ email }) }),
   duplicates: (treeId, firstName, lastName) =>
     request(`/profiles/duplicates?treeId=${encodeURIComponent(treeId)}&firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}`),
 };
@@ -67,6 +69,7 @@ export const media = {
     return request(`/media?${params.toString()}`);
   },
   create: (data) => request('/media', { method: 'POST', body: JSON.stringify(data) }),
+  remove: (id) => request(`/media/${id}`, { method: 'DELETE' }),
 };
 
 // ── People (local-first CRUD — wraps profiles + relationships) ──
@@ -116,11 +119,16 @@ export const people = {
 export const join = {
   /** Verify an invite token and get the person info (public, no auth needed) */
   verify: (token) => request(`/join/verify?token=${encodeURIComponent(token)}`),
+  previewTree: (treeId) => request(`/join/tree/${encodeURIComponent(treeId)}`),
   /** Claim a profile via invite token + create account with email & password */
   claim: (token, email, displayName, password) =>
     request('/join/claim', { method: 'POST', body: JSON.stringify({ token, email, displayName, password }) }),
   claimAuthenticated: (token) =>
     request('/join/claim-authenticated', { method: 'POST', body: JSON.stringify({ token }) }),
+  joinWithCode: ({ treeId, code, email, displayName }) =>
+    request('/join/tree-access', { method: 'POST', body: JSON.stringify({ treeId, code, email, displayName }) }),
+  joinWithAnyCode: ({ code, email, displayName }) =>
+    request('/join/tree-access-code', { method: 'POST', body: JSON.stringify({ code, email, displayName }) }),
 };
 
 // ── Facts ───────────────────────────────────────────

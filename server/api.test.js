@@ -206,6 +206,107 @@ test('health, auth, bootstrap, and trees endpoints stay functional', async () =>
   assert.equal(meAfterLogout.status, 401);
 });
 
+test('magic link sign-in requires a fuzzy display-name match for existing accounts on the same email', async () => {
+  await createMagicSession('safety@example.com', 'Safiya Carter');
+
+  const wrongName = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'safety@example.com',
+      displayName: 'Random Stranger',
+    },
+  });
+  assert.equal(wrongName.status, 400);
+  assert.equal(wrongName.body.error, 'That name does not match the account for this email address closely enough');
+
+  const missingName = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'safety@example.com',
+    },
+  });
+  assert.equal(missingName.status, 400);
+  assert.equal(missingName.body.error, 'Enter the name associated with this account before requesting a sign-in link');
+
+  const closeName = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'safety@example.com',
+      displayName: 'Safia Carter',
+    },
+  });
+  assert.equal(closeName.status, 200);
+});
+
+test('profile updates persist owner-editable profile fields and allow clearing optional values', async () => {
+  const admin = await bootstrap();
+
+  const profile = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Elena',
+    lastName: 'Rivera',
+    maidenName: 'Marquez',
+    metadata: {
+      branch: 'maternal',
+      gender: 'F',
+      birth: 1982,
+      bio: 'Original biography',
+    },
+  });
+
+  const updated = await apiRequest(`/api/profiles/${profile.id}`, {
+    method: 'PUT',
+    token: admin.token,
+    body: {
+      firstName: 'Elena',
+      lastName: 'Santos',
+      maidenName: null,
+      isLiving: false,
+      metadata: {
+        branch: 'maternal',
+        gender: 'O',
+        birth: 1984,
+        death: 2024,
+        bio: 'Updated biography',
+      },
+    },
+  });
+
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.last_name, 'Santos');
+  assert.equal(updated.body.maiden_name, null);
+  assert.equal(updated.body.is_living, 0);
+  assert.equal(updated.body.metadata.branch, 'maternal');
+  assert.equal(updated.body.facts.gender[0].value, 'O');
+  assert.equal(updated.body.facts.birth_year[0].value, '1984');
+  assert.equal(updated.body.facts.death_year[0].value, '2024');
+  assert.equal(updated.body.facts.biography[0].value, 'Updated biography');
+
+  const cleared = await apiRequest(`/api/profiles/${profile.id}`, {
+    method: 'PUT',
+    token: admin.token,
+    body: {
+      firstName: 'Elena',
+      lastName: 'Santos',
+      maidenName: null,
+      isLiving: true,
+      metadata: {
+        branch: 'maternal',
+        gender: 'O',
+        birth: 1984,
+        death: null,
+        bio: '',
+      },
+    },
+  });
+
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.is_living, 1);
+  assert.equal(cleared.body.facts.gender[0].value, 'O');
+  assert.equal(cleared.body.facts.birth_year[0].value, '1984');
+  assert.equal(cleared.body.facts.death_year, undefined);
+  assert.equal(cleared.body.facts.biography, undefined);
+});
+
 test('profiles and join endpoints cover creation, invite verification, claim, and deletion flows', async () => {
   const admin = await bootstrap();
 
@@ -290,6 +391,223 @@ test('profiles and join endpoints cover creation, invite verification, claim, an
   });
   assert.equal(deletedProfile.status, 200);
   assert.equal(deletedProfile.body.message, 'Profile deleted');
+});
+
+test('tree access codes let a new member join a tree and create a claimed profile', async () => {
+  const admin = await bootstrap();
+
+  const accessCode = await apiRequest(`/api/trees/${admin.treeId}/access-code`, {
+    method: 'POST',
+    token: admin.token,
+  });
+  assert.equal(accessCode.status, 201);
+  assert.ok(accessCode.body.code);
+
+  const joinTree = await apiRequest('/api/join/tree-access', {
+    method: 'POST',
+    body: {
+      treeId: admin.treeId,
+      code: accessCode.body.code,
+      email: 'newmember@example.com',
+      displayName: 'New Member',
+    },
+  });
+  assert.equal(joinTree.status, 200);
+  assert.equal(joinTree.body.treeId, admin.treeId);
+  assert.ok(joinTree.body.token);
+  assert.ok(joinTree.body.profileId);
+  assert.equal(joinTree.body.createdProfile, true);
+
+  const membership = getRow(
+    `SELECT role
+     FROM tree_members
+     WHERE tree_id = ? AND user_id = ?`,
+    [admin.treeId, joinTree.body.user.id]
+  );
+  assert.equal(membership?.role, 'contributor');
+
+  const claimedProfile = getRow(
+    `SELECT claimed_by, first_name, last_name
+     FROM profiles
+     WHERE id = ?`,
+    [joinTree.body.profileId]
+  );
+  assert.equal(claimedProfile?.claimed_by, joinTree.body.user.id);
+  assert.equal(claimedProfile?.first_name, 'New');
+  assert.equal(claimedProfile?.last_name, 'Member');
+
+  const treeAccess = await apiRequest(`/api/trees/${admin.treeId}`, {
+    token: joinTree.body.token,
+  });
+  assert.equal(treeAccess.status, 200);
+  assert.equal(treeAccess.body.id, admin.treeId);
+});
+
+test('tree access codes can be redeemed from the main sign-in flow without a tree link', async () => {
+  const admin = await bootstrap();
+
+  const accessCode = await apiRequest(`/api/trees/${admin.treeId}/access-code`, {
+    method: 'POST',
+    token: admin.token,
+  });
+  assert.equal(accessCode.status, 201);
+  assert.ok(accessCode.body.code);
+
+  const joinTree = await apiRequest('/api/join/tree-access-code', {
+    method: 'POST',
+    body: {
+      code: accessCode.body.code,
+      email: 'codeentry@example.com',
+      displayName: 'Code Entry',
+    },
+  });
+  assert.equal(joinTree.status, 200);
+  assert.equal(joinTree.body.treeId, admin.treeId);
+  assert.ok(joinTree.body.token);
+  assert.ok(joinTree.body.profileId);
+
+  const membership = getRow(
+    `SELECT role
+     FROM tree_members
+     WHERE tree_id = ? AND user_id = ?`,
+    [admin.treeId, joinTree.body.user.id]
+  );
+  assert.equal(membership?.role, 'contributor');
+});
+
+test('multiple family trees stay isolated across separate owners and invite flows', async () => {
+  const alex = await bootstrap();
+  const sarah = await createMagicSession('sarah@example.com', 'Sarah Family');
+
+  const sarahTree = await apiRequest('/api/trees', {
+    method: 'POST',
+    token: sarah.token,
+    body: {
+      name: 'Sarah Family Tree',
+      description: 'A separate family tree',
+    },
+  });
+  assert.equal(sarahTree.status, 201);
+  assert.notEqual(sarahTree.body.id, alex.treeId);
+
+  const alexInviteProfile = await createProfile(alex.token, alex.treeId, {
+    firstName: 'Alex',
+    lastName: 'Cousin',
+  });
+  const sarahInviteProfile = await createProfile(sarah.token, sarahTree.body.id, {
+    firstName: 'Sarah',
+    lastName: 'Cousin',
+  });
+
+  const alexInvite = getRow('SELECT invite_token FROM profiles WHERE id = ?', [alexInviteProfile.id]);
+  const sarahInvite = getRow('SELECT invite_token FROM profiles WHERE id = ?', [sarahInviteProfile.id]);
+
+  const alexInvitee = await apiRequest('/api/join/claim', {
+    method: 'POST',
+    body: {
+      token: alexInvite.invite_token,
+      email: 'alex-family@example.com',
+      displayName: 'Alex Family Member',
+      password: 'password123',
+    },
+  });
+  assert.equal(alexInvitee.status, 200);
+  assert.equal(alexInvitee.body.profileId, alexInviteProfile.id);
+
+  const sarahInvitee = await apiRequest('/api/join/claim', {
+    method: 'POST',
+    body: {
+      token: sarahInvite.invite_token,
+      email: 'sarah-family@example.com',
+      displayName: 'Sarah Family Member',
+      password: 'password123',
+    },
+  });
+  assert.equal(sarahInvitee.status, 200);
+  assert.equal(sarahInvitee.body.profileId, sarahInviteProfile.id);
+
+  const alexInviteMemberships = db.prepare(
+    `SELECT tree_id
+     FROM tree_members
+     WHERE user_id = ?
+     ORDER BY tree_id`
+  ).all(alexInvitee.body.user.id);
+  assert.deepEqual(alexInviteMemberships.map((row) => row.tree_id), [alex.treeId]);
+
+  const sarahInviteMemberships = db.prepare(
+    `SELECT tree_id
+     FROM tree_members
+     WHERE user_id = ?
+     ORDER BY tree_id`
+  ).all(sarahInvitee.body.user.id);
+  assert.deepEqual(sarahInviteMemberships.map((row) => row.tree_id), [sarahTree.body.id]);
+
+  const alexTrees = await apiRequest('/api/trees', { token: alex.token });
+  assert.equal(alexTrees.status, 200);
+  assert.ok(alexTrees.body.some((tree) => tree.id === alex.treeId));
+  assert.ok(!alexTrees.body.some((tree) => tree.id === sarahTree.body.id));
+
+  const sarahTrees = await apiRequest('/api/trees', { token: sarah.token });
+  assert.equal(sarahTrees.status, 200);
+  assert.ok(sarahTrees.body.some((tree) => tree.id === sarahTree.body.id));
+  assert.ok(!sarahTrees.body.some((tree) => tree.id === alex.treeId));
+
+  const alexInviteVerify = await apiRequest(`/api/join/verify?token=${alexInvite.invite_token}`);
+  assert.equal(alexInviteVerify.status, 404);
+  assert.equal(alexInviteVerify.body.error, 'Invalid or expired invite token');
+});
+
+test('signed-in tree members can claim an unclaimed profile after confirming their email', async () => {
+  const admin = await bootstrap();
+  const profile = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Carmen',
+    lastName: 'Rivera',
+  });
+  const member = await createMagicSession('carmen@example.com', 'Carmen Rivera');
+
+  run(
+    `INSERT INTO tree_members (tree_id, user_id, role)
+     VALUES (?, ?, 'contributor')`,
+    [admin.treeId, member.user.id]
+  );
+
+  const mismatch = await apiRequest(`/api/profiles/${profile.id}/claim`, {
+    method: 'POST',
+    token: member.token,
+    body: { email: 'wrong@example.com' },
+  });
+  assert.equal(mismatch.status, 400);
+
+  const wrongNameMember = await createMagicSession('someoneelse@example.com', 'Wrong Person');
+  run(
+    `INSERT INTO tree_members (tree_id, user_id, role)
+     VALUES (?, ?, 'contributor')`,
+    [admin.treeId, wrongNameMember.user.id]
+  );
+
+  const nameMismatch = await apiRequest(`/api/profiles/${profile.id}/claim`, {
+    method: 'POST',
+    token: wrongNameMember.token,
+    body: { email: 'someoneelse@example.com' },
+  });
+  assert.equal(nameMismatch.status, 400);
+  assert.equal(nameMismatch.body.error, 'Signed-in name does not match this profile closely enough to claim it');
+
+  const claimed = await apiRequest(`/api/profiles/${profile.id}/claim`, {
+    method: 'POST',
+    token: member.token,
+    body: { email: 'carmen@example.com' },
+  });
+  assert.equal(claimed.status, 200);
+  assert.equal(claimed.body.claimed_by, member.user.id);
+
+  const claimedProfile = getRow(
+    `SELECT claimed_by
+     FROM profiles
+     WHERE id = ?`,
+    [profile.id]
+  );
+  assert.equal(claimedProfile?.claimed_by, member.user.id);
 });
 
 test('relationships and graph endpoints cover create, list, traverse, and delete flows', async () => {

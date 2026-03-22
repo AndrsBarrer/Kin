@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+import { media as mediaApi, profiles, stories as storiesApi } from '../api/client';
+import { toast } from './Toast';
 
 export default function PublicProfile() {
   const { t, i18n } = useTranslation();
@@ -11,26 +11,74 @@ export default function PublicProfile() {
   const [stories, setStories] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deletingStoryId, setDeletingStoryId] = useState(null);
+  const [deletingMediaId, setDeletingMediaId] = useState(null);
+  const [openStoryMenuId, setOpenStoryMenuId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/profiles/public/${encodeURIComponent(slug)}`)
-      .then(res => {
-        if (!res.ok) throw new Error(t('publicProfile.profileNotFound'));
-        return res.json();
-      })
+    setLoading(true);
+    profiles.getPublic(slug)
       .then((data) => {
         setProfile(data);
         setStories(data.stories || []);
         if (data.id && (!data.stories || data.stories.length === 0)) {
-          return fetch(`${API_BASE}/stories?profileId=${encodeURIComponent(data.id)}`)
-            .then((res) => res.ok ? res.json() : [])
-            .then((storyRows) => setStories(storyRows));
+          return storiesApi.list(data.id).then((storyRows) => setStories(storyRows));
         }
         return null;
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [slug, t]);
+
+  async function handleDeleteStory(storyId) {
+    setDeletingStoryId(storyId);
+    try {
+      await storiesApi.remove(storyId);
+      setStories((current) => current.filter((story) => story.id !== storyId));
+      setOpenStoryMenuId((current) => (current === storyId ? null : current));
+      toast(t('publicProfile.storyDeleted'), 'success');
+    } catch (err) {
+      toast(err.message || t('publicProfile.storyDeleteFailed'), 'error');
+    } finally {
+      setDeletingStoryId(null);
+    }
+  }
+
+  async function handleDeleteMedia(mediaId) {
+    setDeletingMediaId(mediaId);
+    try {
+      await mediaApi.remove(mediaId);
+      setProfile((current) => {
+        if (!current) return current;
+        const nextMedia = (current.media || []).filter((item) => item.id !== mediaId);
+        return {
+          ...current,
+          media: nextMedia,
+          profilePhotoUrl: nextMedia.find((item) => item.type === 'photo' && item.is_profile_photo)?.url
+            || nextMedia.find((item) => item.type === 'photo')?.url
+            || null,
+        };
+      });
+      toast(t('publicProfile.mediaDeleted'), 'success');
+    } catch (err) {
+      toast(err.message || t('publicProfile.mediaDeleteFailed'), 'error');
+    } finally {
+      setDeletingMediaId(null);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return;
+
+    if (pendingDelete.kind === 'story') {
+      await handleDeleteStory(pendingDelete.id);
+    } else {
+      await handleDeleteMedia(pendingDelete.id);
+    }
+
+    setPendingDelete(null);
+  }
 
   if (loading) return <div style={styles.container}><p style={styles.loading}>{t('common.loading')}</p></div>;
   if (error) return (
@@ -41,9 +89,10 @@ export default function PublicProfile() {
   );
 
   const facts = profile.facts || {};
-  const media = profile.media || [];
-  const photos = media.filter(item => item.type === 'photo');
-  const documents = media.filter(item => item.type === 'document');
+  const mediaItems = profile.media || [];
+  const photos = mediaItems.filter(item => item.type === 'photo');
+  const documents = mediaItems.filter(item => item.type === 'document');
+  const canManageProfile = Boolean(profile.isOwner);
   const skip = new Set(['gender', 'birth_year', 'death_year', 'biography']);
   const extraFacts = Object.entries(facts).filter(([k]) => !skip.has(k));
 
@@ -67,8 +116,17 @@ export default function PublicProfile() {
         <h1 style={styles.name}>{profile.firstName} {profile.lastName}</h1>
         {profile.maidenName && <p style={styles.maiden}>née {profile.maidenName}</p>}
         {dates && <p style={styles.dates}>{dates}</p>}
-        {profile.isLiving && (
-          <span style={styles.livingBadge}>{t('publicProfile.living')}</span>
+        {(profile.isLiving || canManageProfile) && (
+          <div style={styles.statusActions}>
+            {profile.isLiving && (
+              <span style={styles.livingBadge}>{t('publicProfile.living')}</span>
+            )}
+            {canManageProfile && (
+              <Link to={`/?profile=${encodeURIComponent(profile.id)}&tab=explore`} style={styles.editProfileButton}>
+                {t('publicProfile.editProfile')}
+              </Link>
+            )}
+          </div>
         )}
         {bio && (
           <>
@@ -104,11 +162,41 @@ export default function PublicProfile() {
         <h2 style={styles.section}>{t('publicProfile.storiesMemories')}</h2>
         {stories.length > 0 ? stories.map((story) => (
           <article key={story.id} style={styles.storyCard}>
-            <h3 style={styles.storyTitle}>{story.title}</h3>
+            <div style={styles.storyHeader}>
+              <h3 style={styles.storyTitle}>{story.title}</h3>
+              {canManageProfile && (
+                <button
+                  type="button"
+                  style={styles.storyMenuButton}
+                  onClick={() => setOpenStoryMenuId((current) => (current === story.id ? null : story.id))}
+                  aria-expanded={openStoryMenuId === story.id}
+                  aria-label={t('publicProfile.storyActions')}
+                >
+                  {openStoryMenuId === story.id ? '−' : '+'}
+                </button>
+              )}
+            </div>
             <p style={styles.storyBody}>{story.body}</p>
             <p style={styles.storyMeta}>
               {story.author_name || t('publicProfile.unknownAuthor')} · {new Date(story.created_at).toLocaleDateString(i18n.language)}
             </p>
+            {canManageProfile && openStoryMenuId === story.id && (
+              <div style={styles.storyMenuPanel}>
+                <button
+                  type="button"
+                  style={styles.discardButton}
+                  onClick={() => setPendingDelete({
+                    kind: 'story',
+                    id: story.id,
+                    title: story.title,
+                    label: t('publicProfile.deleteStory'),
+                  })}
+                  disabled={deletingStoryId === story.id}
+                >
+                  {deletingStoryId === story.id ? t('publicProfile.deleting') : t('publicProfile.discardStory')}
+                </button>
+              </div>
+            )}
           </article>
         )) : (
           <p style={styles.emptyState}>{t('publicProfile.noPublicStories')}</p>
@@ -118,12 +206,30 @@ export default function PublicProfile() {
           <figure key={item.id} style={styles.mediaCard}>
             <img src={item.url} alt={t('publicProfile.photoArchiveItem')} style={styles.mediaImage} />
             <figcaption style={styles.mediaCaption}>{t('publicProfile.photoArchiveItem')}</figcaption>
+            {canManageProfile && (
+              <button
+                style={styles.manageButton}
+                onClick={() => setPendingDelete({ kind: 'media', id: item.id, label: t('publicProfile.deletePhoto') })}
+                disabled={deletingMediaId === item.id}
+              >
+                {deletingMediaId === item.id ? t('publicProfile.deleting') : t('publicProfile.deletePhoto')}
+              </button>
+            )}
           </figure>
         ))}
         {documents.map((item) => (
           <div key={item.id} style={styles.documentRow}>
             <span style={styles.documentIcon}>📄</span>
             <a href={item.url} target="_blank" rel="noreferrer" style={styles.documentLink}>{t('publicProfile.openDocument')}</a>
+            {canManageProfile && (
+              <button
+                style={styles.documentDeleteButton}
+                onClick={() => setPendingDelete({ kind: 'media', id: item.id, label: t('publicProfile.deleteDocument') })}
+                disabled={deletingMediaId === item.id}
+              >
+                {deletingMediaId === item.id ? t('publicProfile.deleting') : t('publicProfile.deleteDocument')}
+              </button>
+            )}
           </div>
         ))}
         {photos.length === 0 && documents.length === 0 && (
@@ -131,6 +237,26 @@ export default function PublicProfile() {
         )}
         <Link to="/" style={styles.link}>← {t('publicProfile.backToTree')}</Link>
       </div>
+      {pendingDelete && canManageProfile && (
+        <div style={styles.dialogBackdrop} role="presentation">
+          <div style={styles.dialogCard} role="dialog" aria-modal="true" aria-labelledby="public-profile-delete-title">
+            <div id="public-profile-delete-title" style={styles.dialogTitle}>{t('publicProfile.confirmDeleteTitle')}</div>
+            <div style={styles.dialogBody}>
+              {pendingDelete.kind === 'story'
+                ? t('publicProfile.confirmDeleteStoryBody', { title: pendingDelete.title || '' })
+                : t('publicProfile.confirmDeleteMediaBody')}
+            </div>
+            <div style={styles.dialogActions}>
+              <button type="button" style={styles.dialogSecondary} onClick={() => setPendingDelete(null)}>
+                {t('common.cancel')}
+              </button>
+              <button type="button" style={styles.dialogPrimary} onClick={handleConfirmDelete}>
+                {pendingDelete.label || t('publicProfile.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -205,7 +331,28 @@ const styles = {
     fontWeight: 600,
     background: 'rgba(61, 124, 71, 0.08)',
     color: '#3D7C47',
+    marginBottom: 0,
+  },
+  statusActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 10,
     marginBottom: 16,
+  },
+  editProfileButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 42,
+    padding: '0 16px',
+    borderRadius: 999,
+    border: '1px solid #3D7C47',
+    background: '#3D7C47',
+    color: '#fff',
+    textDecoration: 'none',
+    fontSize: 13,
+    fontWeight: 700,
   },
   section: {
     fontSize: 11,
@@ -275,11 +422,31 @@ const styles = {
     background: '#FDFBF8',
     marginBottom: 10,
   },
+  storyHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   storyTitle: {
     fontSize: 16,
     fontWeight: 600,
     color: '#2D2A26',
     marginBottom: 6,
+    flex: 1,
+  },
+  storyMenuButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    border: '1px solid #DCD5C8',
+    background: '#F5F1EB',
+    color: '#7C7266',
+    fontSize: 18,
+    fontWeight: 700,
+    lineHeight: 1,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   storyBody: {
     fontSize: 14,
@@ -291,6 +458,34 @@ const styles = {
     fontSize: 12,
     color: '#9A948E',
     marginTop: 8,
+  },
+  storyMenuPanel: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+  },
+  discardButton: {
+    border: '1px solid rgba(180, 69, 54, 0.22)',
+    borderRadius: 8,
+    background: 'rgba(180, 69, 54, 0.08)',
+    color: '#B44536',
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '8px 10px',
+    cursor: 'pointer',
+  },
+  manageButton: {
+    marginTop: 10,
+    border: '1px solid rgba(180, 69, 54, 0.22)',
+    borderRadius: 8,
+    background: 'rgba(180, 69, 54, 0.08)',
+    color: '#B44536',
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '8px 10px',
+    cursor: 'pointer',
   },
   mediaCard: {
     margin: '0 0 12px',
@@ -328,6 +523,18 @@ const styles = {
     color: '#3D7C47',
     textDecoration: 'none',
     fontWeight: 600,
+    flex: 1,
+  },
+  documentDeleteButton: {
+    border: '1px solid rgba(180, 69, 54, 0.22)',
+    borderRadius: 8,
+    background: 'rgba(180, 69, 54, 0.08)',
+    color: '#B44536',
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '7px 10px',
+    cursor: 'pointer',
   },
   emptyState: {
     fontSize: 14,
@@ -346,6 +553,68 @@ const styles = {
   loading: {
     color: '#9A948E',
     fontSize: 16,
+  },
+  dialogBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 120,
+    background: 'rgba(45, 42, 38, 0.22)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+  },
+  dialogCard: {
+    width: 'min(420px, 100%)',
+    padding: 20,
+    borderRadius: 16,
+    border: '1px solid #DCD5C8',
+    background: '#FDFBF8',
+    boxShadow: '0 16px 42px rgba(45, 42, 38, 0.18)',
+    textAlign: 'left',
+  },
+  dialogTitle: {
+    fontFamily: "'Playfair Display', serif",
+    fontSize: 24,
+    color: '#2D2A26',
+    marginBottom: 8,
+  },
+  dialogBody: {
+    fontSize: 14,
+    lineHeight: 1.7,
+    color: '#5E5850',
+    marginBottom: 14,
+  },
+  dialogActions: {
+    display: 'flex',
+    gap: 8,
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  dialogPrimary: {
+    minHeight: 42,
+    padding: '0 14px',
+    borderRadius: 10,
+    border: '1px solid #B44536',
+    background: '#B44536',
+    color: '#fff',
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  dialogSecondary: {
+    minHeight: 42,
+    padding: '0 14px',
+    borderRadius: 10,
+    border: '1px solid #DCD5C8',
+    background: '#FDFBF8',
+    color: '#5E5850',
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   error: {
     color: '#c44',
