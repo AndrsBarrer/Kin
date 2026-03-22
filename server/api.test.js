@@ -111,10 +111,14 @@ async function createProfile(token, treeId, overrides = {}) {
   return response.body;
 }
 
-async function createMagicSession(email, displayName = 'Guest User') {
+async function createMagicSession(email, displayName = 'Guest User', options = {}) {
   const magicResponse = await apiRequest('/api/auth/magic-link', {
     method: 'POST',
-    body: { email, displayName },
+    body: {
+      email,
+      displayName,
+      createAccount: options.createAccount ?? true,
+    },
   });
   assert.equal(magicResponse.status, 200);
 
@@ -206,36 +210,45 @@ test('health, auth, bootstrap, and trees endpoints stay functional', async () =>
   assert.equal(meAfterLogout.status, 401);
 });
 
-test('magic link sign-in requires a fuzzy display-name match for existing accounts on the same email', async () => {
+test('existing accounts can request a magic-link sign-in by email only, while new accounts must be created explicitly', async () => {
   await createMagicSession('safety@example.com', 'Safiya Carter');
 
-  const wrongName = await apiRequest('/api/auth/magic-link', {
+  const existingEmailOnly = await apiRequest('/api/auth/magic-link', {
     method: 'POST',
     body: {
       email: 'safety@example.com',
-      displayName: 'Random Stranger',
     },
   });
-  assert.equal(wrongName.status, 400);
-  assert.equal(wrongName.body.error, 'That name does not match the account for this email address closely enough');
+  assert.equal(existingEmailOnly.status, 200);
 
-  const missingName = await apiRequest('/api/auth/magic-link', {
+  const unknownWithoutCreate = await apiRequest('/api/auth/magic-link', {
     method: 'POST',
     body: {
-      email: 'safety@example.com',
+      email: 'newperson@example.com',
     },
   });
-  assert.equal(missingName.status, 400);
-  assert.equal(missingName.body.error, 'Enter the name associated with this account before requesting a sign-in link');
+  assert.equal(unknownWithoutCreate.status, 404);
+  assert.equal(unknownWithoutCreate.body.error, 'No account exists for this email yet. Create an account first or use a tree access code.');
 
-  const closeName = await apiRequest('/api/auth/magic-link', {
+  const createAccountMissingName = await apiRequest('/api/auth/magic-link', {
     method: 'POST',
     body: {
-      email: 'safety@example.com',
-      displayName: 'Safia Carter',
+      email: 'newperson@example.com',
+      createAccount: true,
     },
   });
-  assert.equal(closeName.status, 200);
+  assert.equal(createAccountMissingName.status, 400);
+  assert.equal(createAccountMissingName.body.error, 'Enter your full name to create an account');
+
+  const createAccount = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'newperson@example.com',
+      displayName: 'New Person',
+      createAccount: true,
+    },
+  });
+  assert.equal(createAccount.status, 200);
 });
 
 test('profile updates persist owner-editable profile fields and allow clearing optional values', async () => {

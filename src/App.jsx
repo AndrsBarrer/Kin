@@ -3,12 +3,14 @@ import * as THREE from 'three';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { people as peopleApi, profiles as profilesApi, media as mediaApi, auth, join, setToken } from './api/client';
+import './App.css';
 import { toast } from './components/Toast';
 import { useTree } from './context/TreeContext';
 import Scene from './components/Scene';
 import TopBar from './components/TopBar';
 import DetailPanel from './components/DetailPanel';
 import AddPersonModal from './components/AddPersonModal';
+import LanguageToggle from './components/LanguageToggle';
 import Toast from './components/Toast';
 
 const MAGIC_LINK_RESEND_DELAY_SECONDS = 30;
@@ -87,10 +89,13 @@ function App() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [magicLinkSentAt, setMagicLinkSentAt] = useState(null);
   const [resendTimerNow, setResendTimerNow] = useState(() => Date.now());
-  const [signInForm, setSignInForm] = useState({ email: '', displayName: '' });
+  const [authRevealActive, setAuthRevealActive] = useState(false);
+  const [signInForm, setSignInForm] = useState({ email: '' });
+  const [createAccountForm, setCreateAccountForm] = useState({ email: '', displayName: '' });
   const [signInCodeForm, setSignInCodeForm] = useState({ email: '', displayName: '', code: '' });
   const sceneRef = useRef(null);
   const tooltipRef = useRef(null);
+  const authOverlayWasVisibleRef = useRef(false);
 
   const proposalStatus = searchParams.get('proposal');
   const requestedProfileId = searchParams.get('profile');
@@ -100,6 +105,10 @@ function App() {
   const canAddPeople = !treeLoading && Boolean(resolvedActiveTreeId);
   const shouldShowSignInEntry = showSignInEntry || (!treeLoading && !resolvedActiveTreeId && !isAuthenticated);
   const isCodeSignInMode = signInEntryMode === 'code';
+  const isCreateAccountMode = signInEntryMode === 'create';
+  const appShellClassName = ['app-shell', shouldShowSignInEntry ? 'app-shell--auth-open' : '', authRevealActive ? 'app-shell--reveal' : '']
+    .filter(Boolean)
+    .join(' ');
   const resendRemainingSeconds = magicLinkSentAt
     ? Math.max(0, MAGIC_LINK_RESEND_DELAY_SECONDS - Math.ceil((resendTimerNow - magicLinkSentAt) / 1000))
     : 0;
@@ -137,6 +146,25 @@ function App() {
 
     return () => window.clearInterval(timer);
   }, [magicLinkSentAt, resendRemainingSeconds]);
+
+  useEffect(() => {
+    if (shouldShowSignInEntry) {
+      authOverlayWasVisibleRef.current = true;
+      setAuthRevealActive(false);
+      return undefined;
+    }
+
+    if (!authOverlayWasVisibleRef.current) return undefined;
+
+    setAuthRevealActive(true);
+    authOverlayWasVisibleRef.current = false;
+
+    const timer = window.setTimeout(() => {
+      setAuthRevealActive(false);
+    }, 1500);
+
+    return () => window.clearTimeout(timer);
+  }, [shouldShowSignInEntry]);
 
   useEffect(() => {
     if (!requestedProfileId || people.length === 0) return;
@@ -353,7 +381,6 @@ function App() {
     try {
       await auth.sendMagicLink({
         email: signInForm.email.trim(),
-        displayName: signInForm.displayName.trim() || undefined,
       });
       setMagicLinkSent(true);
       setMagicLinkSentAt(Date.now());
@@ -364,24 +391,53 @@ function App() {
     } finally {
       setSignInSending(false);
     }
-  }, [signInForm.displayName, signInForm.email, t]);
+  }, [signInForm.email, t]);
+
+  const sendCreateAccountLinkRequest = useCallback(async () => {
+    setSignInSending(true);
+    try {
+      await auth.sendMagicLink({
+        email: createAccountForm.email.trim(),
+        displayName: createAccountForm.displayName.trim(),
+        createAccount: true,
+      });
+      setMagicLinkSent(true);
+      setMagicLinkSentAt(Date.now());
+      setResendTimerNow(Date.now());
+      toast(t('app.createAccountLinkSent'), 'success');
+    } catch (err) {
+      toast(err.message || t('app.createAccountLinkFailed'), 'error');
+    } finally {
+      setSignInSending(false);
+    }
+  }, [createAccountForm.displayName, createAccountForm.email, t]);
 
   const handleSendSignInLink = useCallback(async (event) => {
     event.preventDefault();
     await sendSignInLinkRequest();
   }, [sendSignInLinkRequest]);
 
+  const handleSendCreateAccountLink = useCallback(async (event) => {
+    event.preventDefault();
+    await sendCreateAccountLinkRequest();
+  }, [sendCreateAccountLinkRequest]);
+
   const handleResendSignInLink = useCallback(async () => {
     if (!canResendMagicLink) return;
+    if (isCreateAccountMode) {
+      await sendCreateAccountLinkRequest();
+      return;
+    }
     await sendSignInLinkRequest();
-  }, [canResendMagicLink, sendSignInLinkRequest]);
+  }, [canResendMagicLink, isCreateAccountMode, sendCreateAccountLinkRequest, sendSignInLinkRequest]);
 
   const handleTryAnotherEmail = useCallback(() => {
     setMagicLinkSent(false);
     setMagicLinkSentAt(null);
     setResendTimerNow(Date.now());
     setSignInEntryMode('link');
-    setSignInForm((current) => ({ ...current, email: '' }));
+    setSignInForm({ email: '' });
+    setCreateAccountForm({ email: '', displayName: '' });
   }, []);
 
   const handleJoinWithAccessCode = useCallback(async (event) => {
@@ -424,59 +480,164 @@ function App() {
           {t('common.loadingFamilyTree')}
         </div>
       )}
-      <Scene
-        people={people}
-        rels={rels}
-        selectedId={selectedId}
-        focusedId={focusedId}
-        pathMode={pathMode}
-        graphMode={graphMode}
-        onNodeClick={handleNodeClick}
-        onPathSelect={handlePathSelect}
-        tooltipRef={tooltipRef}
-        ref={sceneRef}
-      />
-      <TopBar
-        people={people}
-        rels={rels}
-        focusedId={focusedId}
-        pathMode={pathMode}
-        graphMode={graphMode}
-        is3DAvailable={is3DAvailable}
-        canOpenModal={canAddPeople}
-        mobileMenuOpen={mobileMenuOpen}
-        onMobileMenuOpenChange={setMobileMenuOpen}
-        onSetFocus={handleSetFocus}
-        onOpenPanel={handleOpenPanel}
-        onTogglePathMode={handleTogglePathMode}
-        onToggleGraphMode={handleToggleGraphMode}
-        onResetView={handleResetView}
-        onOpenModal={() => canAddPeople && setIsModalOpen(true)}
-        currentUser={currentUser}
-        isAuthenticated={isAuthenticated}
-        onLogout={logout}
-        onOpenSignIn={() => {
-          setMagicLinkSent(false);
-          setMagicLinkSentAt(null);
-          setSignInEntryMode('link');
-          setShowSignInEntry(true);
-        }}
-        ownedProfile={ownedProfile}
-        onOpenPublicProfile={() => ownedProfile && navigate(`/p/${ownedProfile.public_slug}`)}
-        sceneRef={sceneRef}
-      />
+      <div className={appShellClassName}>
+        <Scene
+          people={people}
+          rels={rels}
+          selectedId={selectedId}
+          focusedId={focusedId}
+          pathMode={pathMode}
+          graphMode={graphMode}
+          onNodeClick={handleNodeClick}
+          onPathSelect={handlePathSelect}
+          tooltipRef={tooltipRef}
+          ref={sceneRef}
+        />
+        <TopBar
+          people={people}
+          rels={rels}
+          focusedId={focusedId}
+          pathMode={pathMode}
+          graphMode={graphMode}
+          is3DAvailable={is3DAvailable}
+          canOpenModal={canAddPeople}
+          mobileMenuOpen={mobileMenuOpen}
+          onMobileMenuOpenChange={setMobileMenuOpen}
+          onSetFocus={handleSetFocus}
+          onOpenPanel={handleOpenPanel}
+          onTogglePathMode={handleTogglePathMode}
+          onToggleGraphMode={handleToggleGraphMode}
+          onResetView={handleResetView}
+          onOpenModal={() => canAddPeople && setIsModalOpen(true)}
+          currentUser={currentUser}
+          isAuthenticated={isAuthenticated}
+          onLogout={logout}
+          onOpenSignIn={() => {
+            setMagicLinkSent(false);
+            setMagicLinkSentAt(null);
+            setSignInEntryMode('link');
+            setShowSignInEntry(true);
+          }}
+          ownedProfile={ownedProfile}
+          onOpenPublicProfile={() => ownedProfile && navigate(`/p/${ownedProfile.public_slug}`)}
+          sceneRef={sceneRef}
+        />
+        {proposalNotice && (
+          <div style={{
+            position: 'fixed',
+            top: 72,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 220,
+            width: 'min(560px, calc(100vw - 24px))',
+            padding: '14px 16px',
+            borderRadius: 12,
+            border: `1px solid ${proposalNotice.tone === 'error' ? 'rgba(192,57,43,0.28)' : proposalNotice.tone === 'info' ? 'rgba(58,114,160,0.24)' : 'rgba(61,124,71,0.24)'}`,
+            background: 'rgba(253, 251, 248, 0.98)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+            backdropFilter: 'blur(8px)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '.08em',
+                  textTransform: 'uppercase',
+                  color: proposalNotice.tone === 'error' ? '#c0392b' : proposalNotice.tone === 'info' ? '#3A72A0' : '#3D7C47',
+                  marginBottom: 4,
+                }}>
+                  {t('app.proposalUpdate')}
+                </div>
+                <div style={{
+                  fontFamily: "'Playfair Display', serif",
+                  fontSize: 22,
+                  color: '#2D2A26',
+                  marginBottom: 4,
+                }}>
+                  {proposalNotice.title}
+                </div>
+                <div style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  color: '#5E5850',
+                }}>
+                  {proposalNotice.body}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismissProposalNotice}
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text-muted)',
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                aria-label="Dismiss proposal notice"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+        <DetailPanel
+          person={selectedPersonWithOwnership}
+          people={people}
+          rels={rels}
+          initialTab={requestedPanelTab}
+          onEditPerson={setEditingPerson}
+          onClose={handleClosePanel}
+          onViewPerson={handleViewPerson}
+          onFocusPerson={handleFocusPerson}
+          onPhotoChange={handlePhotoChange}
+          onRelationshipAdded={handleRelationshipAdded}
+          onRelationshipRemoved={handleRelationshipRemoved}
+          onProfileClaimed={handleProfileClaimed}
+        />
+        {(isModalOpen || editingPerson) && (
+          <AddPersonModal
+            activeTreeId={resolvedActiveTreeId}
+            treeLoading={treeLoading}
+            people={people}
+            mode={editingPerson ? 'edit' : 'create'}
+            initialValues={editingPerson ? {
+              firstName: editingPerson.firstName,
+              lastName: editingPerson.lastName,
+              maiden: editingPerson.maiden,
+              gender: editingPerson.gender,
+              birth: editingPerson.birth,
+              death: editingPerson.death,
+              bio: editingPerson.bio,
+            } : null}
+            onSave={editingPerson ? handleUpdatePerson : handleSavePerson}
+            onClose={() => {
+              setIsModalOpen(false);
+              setEditingPerson(null);
+            }}
+          />
+        )}
+      </div>
       {shouldShowSignInEntry && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 300,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'rgba(45,42,38,0.14)',
-          backdropFilter: 'blur(6px)',
-          padding: 20,
-        }}>
+        <div className="auth-entry-screen">
+          <div className="auth-entry-screen__ambient" aria-hidden="true">
+            <div className="auth-entry-screen__mist auth-entry-screen__mist--one" />
+            <div className="auth-entry-screen__mist auth-entry-screen__mist--two" />
+            <div className="auth-entry-screen__glow auth-entry-screen__glow--left" />
+            <div className="auth-entry-screen__glow auth-entry-screen__glow--right" />
+            <div className="auth-entry-screen__threads" />
+            <div className="auth-entry-screen__ripple auth-entry-screen__ripple--one" />
+            <div className="auth-entry-screen__ripple auth-entry-screen__ripple--two" />
+            <div className="auth-entry-screen__ripple auth-entry-screen__ripple--three" />
+          </div>
           <div style={{
             width: 'min(460px, 100%)',
             background: '#FDFBF8',
@@ -485,6 +646,7 @@ function App() {
             boxShadow: '0 20px 50px rgba(45,42,38,0.16)',
             padding: 30,
             position: 'relative',
+            zIndex: 1,
           }}>
             {showSignInEntry && resolvedActiveTreeId && (
               <button
@@ -513,16 +675,19 @@ function App() {
                 ×
               </button>
             )}
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
+              <LanguageToggle />
+            </div>
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
               <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8A7350', marginBottom: 8 }}>
-                {t('app.returningMembers')}
+                {isCreateAccountMode ? t('app.newToKin') : t('app.returningMembers')}
               </div>
               <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, color: '#2D2A26', margin: 0 }}>
-                {isCodeSignInMode ? t('app.signInCodeTitle') : t('app.signInEntryTitle')}
+                {isCodeSignInMode ? t('app.signInCodeTitle') : isCreateAccountMode ? t('app.createAccountTitle') : t('app.signInEntryTitle')}
               </h2>
             </div>
             <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, lineHeight: 1.7, color: '#5E5850', textAlign: 'center', marginBottom: 18 }}>
-              {isCodeSignInMode ? t('app.signInCodeBody') : t('app.signInEntryBody')}
+              {isCodeSignInMode ? t('app.signInCodeBody') : isCreateAccountMode ? t('app.createAccountBody') : t('app.signInEntryBody')}
             </p>
             {magicLinkSent ? (
               <>
@@ -570,20 +735,9 @@ function App() {
                   {t('app.tryAnotherEmail')}
                 </button>
               </>
-            ) : !isCodeSignInMode ? (
+            ) : !isCodeSignInMode && !isCreateAccountMode ? (
               <>
                 <form onSubmit={handleSendSignInLink} style={{ display: 'grid', gap: 8 }}>
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E' }}>
-                    {t('joinPage.displayName')}
-                  </label>
-                  <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
-                    type="text"
-                    value={signInForm.displayName}
-                    onChange={(event) => setSignInForm((current) => ({ ...current, displayName: event.target.value }))}
-                    placeholder={t('joinPage.yourName')}
-                    required
-                  />
                   <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
                     {t('joinPage.email')}
                   </label>
@@ -603,24 +757,104 @@ function App() {
                     {signInSending ? t('app.sendingSignInLink') : t('app.sendSignInLink')}
                   </button>
                 </form>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28, marginTop: 18 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSignInEntryMode('create')}
+                    style={{
+                      minHeight: 44,
+                      padding: '10px 6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#7C7266',
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      textAlign: 'center',
+                      textDecoration: 'underline',
+                      textUnderlineOffset: '0.18em',
+                      textDecorationThickness: '1.5px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t('app.createAccountOption')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSignInEntryMode('code')}
+                    style={{
+                      minHeight: 44,
+                      padding: '10px 6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#5F513B',
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      textAlign: 'center',
+                      textDecoration: 'underline',
+                      textUnderlineOffset: '0.18em',
+                      textDecorationThickness: '1.5px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t('app.useCodeOption')}
+                  </button>
+                </div>
+              </>
+            ) : isCreateAccountMode ? (
+              <>
+                <form onSubmit={handleSendCreateAccountLink} style={{ display: 'grid', gap: 8 }}>
+                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E' }}>
+                    {t('joinPage.displayName')}
+                  </label>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    type="text"
+                    value={createAccountForm.displayName}
+                    onChange={(event) => setCreateAccountForm((current) => ({ ...current, displayName: event.target.value }))}
+                    placeholder={t('treeAccess.namePlaceholder')}
+                    required
+                  />
+                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
+                    {t('joinPage.email')}
+                  </label>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    type="email"
+                    value={createAccountForm.email}
+                    onChange={(event) => setCreateAccountForm((current) => ({ ...current, email: event.target.value }))}
+                    placeholder={t('joinPage.yourEmail')}
+                    required
+                  />
+                  <button
+                    type="submit"
+                    style={{ marginTop: 12, padding: '12px 14px', border: 'none', borderRadius: 10, background: '#3D7C47', color: '#fff', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                    disabled={signInSending}
+                  >
+                    {signInSending ? t('app.creatingAccountLink') : t('app.createAccountAction')}
+                  </button>
+                </form>
                 <button
                   type="button"
-                  onClick={() => setSignInEntryMode('code')}
+                  onClick={() => setSignInEntryMode('link')}
                   style={{
                     width: '100%',
-                    marginTop: 16,
+                    marginTop: 12,
                     padding: '11px 14px',
-                    border: '1px solid #CBBDA7',
+                    border: '1px solid #DCD5C8',
                     borderRadius: 10,
-                    background: '#EFE6D8',
-                    color: '#5F513B',
+                    background: '#FDFBF8',
+                    color: '#7C7266',
                     fontFamily: "'Inter', sans-serif",
                     fontSize: 14,
                     fontWeight: 700,
                     cursor: 'pointer',
                   }}
                 >
-                  {t('app.useCodeOption')}
+                  {t('app.backToEmailSignIn')}
                 </button>
               </>
             ) : (
@@ -690,109 +924,6 @@ function App() {
             )}
           </div>
         </div>
-      )}
-      {proposalNotice && (
-        <div style={{
-          position: 'fixed',
-          top: 72,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 220,
-          width: 'min(560px, calc(100vw - 24px))',
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: `1px solid ${proposalNotice.tone === 'error' ? 'rgba(192,57,43,0.28)' : proposalNotice.tone === 'info' ? 'rgba(58,114,160,0.24)' : 'rgba(61,124,71,0.24)'}`,
-          background: 'rgba(253, 251, 248, 0.98)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
-          backdropFilter: 'blur(8px)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '.08em',
-                textTransform: 'uppercase',
-                color: proposalNotice.tone === 'error' ? '#c0392b' : proposalNotice.tone === 'info' ? '#3A72A0' : '#3D7C47',
-                marginBottom: 4,
-              }}>
-                {t('app.proposalUpdate')}
-              </div>
-              <div style={{
-                fontFamily: "'Playfair Display', serif",
-                fontSize: 22,
-                color: '#2D2A26',
-                marginBottom: 4,
-              }}>
-                {proposalNotice.title}
-              </div>
-              <div style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: '#5E5850',
-              }}>
-                {proposalNotice.body}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={dismissProposalNotice}
-              style={{
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text-muted)',
-                borderRadius: 999,
-                width: 32,
-                height: 32,
-                cursor: 'pointer',
-                fontSize: 16,
-                lineHeight: 1,
-                flexShrink: 0,
-              }}
-              aria-label="Dismiss proposal notice"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
-      <DetailPanel
-        person={selectedPersonWithOwnership}
-        people={people}
-        rels={rels}
-        initialTab={requestedPanelTab}
-        onEditPerson={setEditingPerson}
-        onClose={handleClosePanel}
-        onViewPerson={handleViewPerson}
-        onFocusPerson={handleFocusPerson}
-        onPhotoChange={handlePhotoChange}
-        onRelationshipAdded={handleRelationshipAdded}
-        onRelationshipRemoved={handleRelationshipRemoved}
-        onProfileClaimed={handleProfileClaimed}
-      />
-      {(isModalOpen || editingPerson) && (
-        <AddPersonModal
-          activeTreeId={resolvedActiveTreeId}
-          treeLoading={treeLoading}
-          people={people}
-          mode={editingPerson ? 'edit' : 'create'}
-          initialValues={editingPerson ? {
-            firstName: editingPerson.firstName,
-            lastName: editingPerson.lastName,
-            maiden: editingPerson.maiden,
-            gender: editingPerson.gender,
-            birth: editingPerson.birth,
-            death: editingPerson.death,
-            bio: editingPerson.bio,
-          } : null}
-          onSave={editingPerson ? handleUpdatePerson : handleSavePerson}
-          onClose={() => {
-            setIsModalOpen(false);
-            setEditingPerson(null);
-          }}
-        />
       )}
       <Toast />
     </>

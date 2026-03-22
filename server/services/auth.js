@@ -2,7 +2,6 @@ import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import cryptoRandomString from 'crypto-random-string';
 import pool from '../db/pool.js';
-import { nameScore } from './duplicates.js';
 
 const scryptAsync = promisify(scrypt);
 
@@ -27,7 +26,6 @@ export async function verifyPassword(password, stored) {
 
 const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const EXISTING_ACCOUNT_MAGIC_LINK_NAME_SCORE = 72;
 
 /**
  * Create or find user by email, generate a magic-link token.
@@ -36,6 +34,7 @@ const EXISTING_ACCOUNT_MAGIC_LINK_NAME_SCORE = 72;
 export async function createMagicLink(email, options = {}) {
   const normalizedEmail = email.toLowerCase().trim();
   const normalizedDisplayName = options.displayName?.trim() || null;
+  const canCreateAccount = Boolean(options.createAccount || options.claimToken);
 
   const { rows: existingUsers } = await pool.query(
     `SELECT *
@@ -46,15 +45,12 @@ export async function createMagicLink(email, options = {}) {
 
   const existingUser = existingUsers[0] || null;
 
-  if (existingUser?.display_name) {
-    if (!normalizedDisplayName) {
-      throw Object.assign(new Error('Enter the name associated with this account before requesting a sign-in link'), { status: 400 });
-    }
+  if (!existingUser && !canCreateAccount) {
+    throw Object.assign(new Error('No account exists for this email yet. Create an account first or use a tree access code.'), { status: 404 });
+  }
 
-    const similarity = nameScore(normalizedDisplayName, existingUser.display_name);
-    if (similarity < EXISTING_ACCOUNT_MAGIC_LINK_NAME_SCORE) {
-      throw Object.assign(new Error('That name does not match the account for this email address closely enough'), { status: 400 });
-    }
+  if (!existingUser && !normalizedDisplayName) {
+    throw Object.assign(new Error('Enter your full name to create an account'), { status: 400 });
   }
 
   let user;

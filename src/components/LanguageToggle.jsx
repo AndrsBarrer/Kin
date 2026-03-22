@@ -30,7 +30,7 @@ function getButtonStyle(isActive, isFirst, isLast) {
 }
 
 export default function LanguageToggle() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const currentLanguage = i18n.language?.slice(0, 2) === 'es' ? 'es' : 'en';
 
   const handleLanguageChange = async (language) => {
@@ -41,7 +41,7 @@ export default function LanguageToggle() {
   return (
     <div
       role="group"
-      aria-label="Language switcher"
+      aria-label={t('languageToggle.label')}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -57,7 +57,7 @@ export default function LanguageToggle() {
         type="button"
         onClick={() => handleLanguageChange('en')}
         aria-pressed={currentLanguage === 'en'}
-        aria-label="Switch language to English"
+        aria-label={t('languageToggle.english')}
         style={getButtonStyle(currentLanguage === 'en', true, false)}
       >
         EN
@@ -66,7 +66,7 @@ export default function LanguageToggle() {
         type="button"
         onClick={() => handleLanguageChange('es')}
         aria-pressed={currentLanguage === 'es'}
-        aria-label="Cambiar idioma a espanol"
+        aria-label={t('languageToggle.spanish')}
         style={getButtonStyle(currentLanguage === 'es', false, true)}
       >
         ES

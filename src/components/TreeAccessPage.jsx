@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { auth, join, setToken, trees } from '../api/client';
+import LanguageToggle from './LanguageToggle';
 import { useTree } from '../context/TreeContext';
 
 export default function TreeAccessPage() {
@@ -12,7 +13,7 @@ export default function TreeAccessPage() {
   const [tree, setTree] = useState(null);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
-  const [magicForm, setMagicForm] = useState({ email: '', displayName: '' });
+  const [magicForm, setMagicForm] = useState({ email: '' });
   const [codeForm, setCodeForm] = useState({ email: '', displayName: '', code: '' });
   const [magicSent, setMagicSent] = useState(false);
   const [submittingMagic, setSubmittingMagic] = useState(false);
@@ -67,7 +68,6 @@ export default function TreeAccessPage() {
     try {
       await auth.sendMagicLink({
         email: magicForm.email.trim(),
-        displayName: magicForm.displayName.trim(),
         treeId,
       });
       setMagicSent(true);
@@ -109,6 +109,9 @@ export default function TreeAccessPage() {
   return (
     <div style={styles.page}>
       <div style={styles.card}>
+        <div style={styles.languageToggleWrap}>
+          <LanguageToggle />
+        </div>
         <h1 style={styles.logo}>Kin</h1>
         <p style={styles.eyebrow}>{t('treeAccess.eyebrow')}</p>
         <h2 style={styles.title}>{tree?.name || t('treeAccess.defaultTitle')}</h2>
@@ -126,15 +129,6 @@ export default function TreeAccessPage() {
             </p>
 
             <form onSubmit={handleMagicLink} style={styles.form}>
-              <label style={styles.label}>{t('treeAccess.name')}</label>
-              <input
-                style={styles.input}
-                type="text"
-                value={magicForm.displayName}
-                onChange={(event) => setMagicForm((current) => ({ ...current, displayName: event.target.value }))}
-                placeholder={t('treeAccess.namePlaceholder')}
-                required
-              />
               <label style={styles.label}>{t('treeAccess.email')}</label>
               <input
                 style={styles.input}
@@ -213,6 +207,12 @@ const styles = {
     padding: 32,
     border: '1px solid #DCD5C8',
     boxShadow: '0 18px 42px rgba(45,42,38,0.10)',
+    position: 'relative',
+  },
+  languageToggleWrap: {
+    position: 'absolute',
+    top: 18,
+    right: 18,
   },
   logo: {
     fontFamily: "'Playfair Display', serif",
