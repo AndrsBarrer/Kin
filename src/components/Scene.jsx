@@ -1,4 +1,3 @@
-/* eslint-disable react/prop-types */
 import { useEffect, useRef, forwardRef } from 'react';
 import * as THREE from 'three';
 import { BRANCH } from '../data/familyData';

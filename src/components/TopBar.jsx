@@ -1,7 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BRANCH, bfs } from '../data/familyData';
-import LanguageToggle from './LanguageToggle';
 import s from './TopBar.module.css';
 
 function normalizeText(value) {
@@ -17,6 +16,7 @@ export default function TopBar({
   mobileMenuOpen, onMobileMenuOpenChange,
   onSetFocus, onOpenPanel, onTogglePathMode, onToggleGraphMode, onResetView, onOpenModal,
   currentUser, isAuthenticated, onLogout, onOpenSignIn,
+  onOpenSettings, onOpenTutorial,
   ownedProfile, onOpenPublicProfile,
   sceneRef,
 }) {
@@ -27,11 +27,12 @@ export default function TopBar({
   const [pathB, setPathB] = useState(null);
   const [pathBanner, setPathBanner] = useState(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const wrapRef = useRef(null);
   const profileMenuRef = useRef(null);
   const normalizedQuery = normalizeText(query);
 
-  const matches = normalizedQuery
+  const matches = useMemo(() => (normalizedQuery
     ? people.filter((person) => {
         const haystack = normalizeText([
           person.firstName,
@@ -42,22 +43,22 @@ export default function TopBar({
         ].filter(Boolean).join(' '));
         return haystack.includes(normalizedQuery);
       }).slice(0, 8)
-    : [];
+    : []), [normalizedQuery, people]);
 
   const focusedPerson = focusedId ? people.find(p => p.id === focusedId) : null;
 
-  const handleSearchClick = (p) => {
+  const handleSearchClick = useCallback((p) => {
     setShowResults(false);
     setQuery('');
     onMobileMenuOpenChange(false);
     onSetFocus(p.id);
     onOpenPanel(p.id);
-  };
+  }, [onMobileMenuOpenChange, onOpenPanel, onSetFocus]);
 
   const handleSearchSubmit = useCallback(() => {
     if (matches.length === 0) return;
     handleSearchClick(matches[0]);
-  }, [matches]);
+  }, [handleSearchClick, matches]);
 
   const handlePathToggle = () => {
     onMobileMenuOpenChange(false);
@@ -90,6 +91,38 @@ export default function TopBar({
   const handleToggleGraph = () => {
     onMobileMenuOpenChange(false);
     onToggleGraphMode?.();
+  };
+
+  const handleOpenSettings = () => {
+    onMobileMenuOpenChange(false);
+    onOpenSettings?.();
+  };
+
+  const handleOpenTutorial = () => {
+    onMobileMenuOpenChange(false);
+    onOpenTutorial?.();
+  };
+
+  const handleOpenSignIn = () => {
+    handleCloseMobileMenu();
+    onOpenSignIn?.();
+  };
+
+  const handleLogout = () => {
+    handleCloseMobileMenu();
+    onLogout?.();
+  };
+
+  const handleMobileMenuToggle = () => {
+    if (mobileMenuOpen) {
+      setMobileToolsOpen(false);
+    }
+    onMobileMenuOpenChange(!mobileMenuOpen);
+  };
+
+  const handleCloseMobileMenu = () => {
+    setMobileToolsOpen(false);
+    onMobileMenuOpenChange(false);
   };
 
   // Called from App when a node is clicked in path mode
@@ -276,13 +309,18 @@ export default function TopBar({
             )}
           </div>
         )}
-        <div style={{ flexShrink: 0 }}>
-          <LanguageToggle />
-        </div>
+        {isAuthenticated && onOpenSettings && (
+          <button type="button" className={s.settingsBtn} onClick={handleOpenSettings} aria-label={t('topBar.settings')}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M12 3.75a1 1 0 0 1 .98.78l.42 1.9a5.75 5.75 0 0 1 1.05.44l1.74-.94a1 1 0 0 1 1.22.18l1.41 1.41a1 1 0 0 1 .18 1.22l-.94 1.74c.17.34.31.69.44 1.05l1.9.42a1 1 0 0 1 .78.98v2a1 1 0 0 1-.78.98l-1.9.42a5.77 5.77 0 0 1-.44 1.05l.94 1.74a1 1 0 0 1-.18 1.22l-1.41 1.41a1 1 0 0 1-1.22.18l-1.74-.94c-.34.17-.69.31-1.05.44l-.42 1.9a1 1 0 0 1-.98.78h-2a1 1 0 0 1-.98-.78l-.42-1.9a5.77 5.77 0 0 1-1.05-.44l-1.74.94a1 1 0 0 1-1.22-.18l-1.41-1.41a1 1 0 0 1-.18-1.22l.94-1.74a5.77 5.77 0 0 1-.44-1.05l-1.9-.42a1 1 0 0 1-.78-.98v-2a1 1 0 0 1 .78-.98l1.9-.42c.13-.36.27-.71.44-1.05l-.94-1.74a1 1 0 0 1 .18-1.22l1.41-1.41a1 1 0 0 1 1.22-.18l1.74.94c.34-.17.69-.31 1.05-.44l.42-1.9a1 1 0 0 1 .98-.78z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6"/>
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className={s.mobileMenuBtn}
-          onClick={() => onMobileMenuOpenChange(!mobileMenuOpen)}
+          onClick={handleMobileMenuToggle}
           aria-expanded={mobileMenuOpen}
           aria-label={mobileMenuOpen ? t('topBar.closeMenu') : t('topBar.openMenu')}
         >
@@ -292,19 +330,38 @@ export default function TopBar({
 
       {mobileMenuOpen && (
         <>
-          <button className={s.mobileMenuBackdrop} onClick={() => onMobileMenuOpenChange(false)} aria-label={t('topBar.closeMenu')} />
+          <button className={s.mobileMenuBackdrop} onClick={handleCloseMobileMenu} aria-label={t('topBar.closeMenu')} />
           <div className={s.mobileMenu}>
             <button className={`${s.mobileAction} ${pathMode ? s.mobileActionActive : ''}`} onClick={handlePathToggle}>{t('topBar.findConnection')}</button>
             <button className={`${s.mobileAction} ${s.mobileActionPrimary}`} onClick={handleOpenAddPerson} disabled={!canOpenModal}>{t('topBar.addPerson')}</button>
-            <button className={s.mobileAction} onClick={handleReset}>{t('topBar.resetView')}</button>
-            {!isAuthenticated && onOpenSignIn && <button className={s.mobileAction} onClick={onOpenSignIn}>{t('topBar.signIn')}</button>}
-            {isAuthenticated && ownedProfile && onOpenPublicProfile && <button className={s.mobileAction} onClick={() => { onMobileMenuOpenChange(false); onOpenPublicProfile(); }}>{t('topBar.viewPublicProfile')}</button>}
-            {isAuthenticated && <button className={s.mobileAction} onClick={onLogout}>{t('topBar.signOut')}</button>}
-            {is3DAvailable && (
-              <button className={s.mobileAction} onClick={handleToggleGraph}>
-                {graphMode === '2d' ? t('topBar.switchTo3d') : t('topBar.switchTo2d')}
-              </button>
+              <button className={`${s.mobileAction} ${s.mobileActionWide}`} onClick={handleReset}>{t('topBar.resetView')}</button>
+            {isAuthenticated && (ownedProfile || is3DAvailable || onOpenTutorial) && (
+              <div className={s.mobileSubmenuWrap}>
+                <button
+                  className={s.mobileSubmenuToggle}
+                  type="button"
+                  onClick={() => setMobileToolsOpen((open) => !open)}
+                  aria-expanded={mobileToolsOpen}
+                >
+                  <span>{t('topBar.moreTools')}</span>
+                  <span className={s.mobileSubmenuCaret}>{mobileToolsOpen ? '−' : '+'}</span>
+                </button>
+                {mobileToolsOpen && (
+                  <div className={s.mobileSubmenu}>
+                    {ownedProfile && onOpenPublicProfile && <button className={s.mobileSubmenuAction} onClick={() => { handleCloseMobileMenu(); onOpenPublicProfile(); }}>{t('topBar.viewPublicProfile')}</button>}
+                    {is3DAvailable && (
+                      <button className={s.mobileSubmenuAction} onClick={handleToggleGraph}>
+                        {graphMode === '2d' ? t('topBar.switchTo3d') : t('topBar.switchTo2d')}
+                      </button>
+                    )}
+                    {onOpenTutorial && <button className={s.mobileSubmenuAction} onClick={handleOpenTutorial}>{t('topBar.tutorial')}</button>}
+                  </div>
+                )}
+              </div>
             )}
+            {isAuthenticated && onOpenSettings && <button className={s.mobileAction} onClick={handleOpenSettings}>{t('topBar.settings')}</button>}
+            {!isAuthenticated && onOpenSignIn && <button className={`${s.mobileAction} ${s.mobileActionWide}`} onClick={handleOpenSignIn}>{t('topBar.signIn')}</button>}
+            {isAuthenticated && <button className={s.mobileAction} onClick={handleLogout}>{t('topBar.signOut')}</button>}
           </div>
         </>
       )}

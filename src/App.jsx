@@ -14,6 +14,90 @@ import LanguageToggle from './components/LanguageToggle';
 import Toast from './components/Toast';
 
 const MAGIC_LINK_RESEND_DELAY_SECONDS = 30;
+const USER_PREFERENCES_STORAGE_KEY = 'kin_user_preferences_v1';
+const USER_ACTIVITY_STORAGE_KEY = 'kin_user_activity_v1';
+const IDLE_LOGOUT_MS = 30 * 60 * 1000;
+
+function normalizeLanguage(language) {
+  return language?.slice(0, 2) === 'es' ? 'es' : 'en';
+}
+
+function readUserPreferencesMap() {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = window.localStorage.getItem(USER_PREFERENCES_STORAGE_KEY);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getUserPreferences(userId) {
+  if (!userId) {
+    return {
+      language: null,
+      darkMode: false,
+      tutorialStatus: null,
+    };
+  }
+
+  const stored = readUserPreferencesMap()[userId];
+  return {
+    language: stored?.language || null,
+    darkMode: Boolean(stored?.darkMode),
+    tutorialStatus: stored?.tutorialStatus || null,
+  };
+}
+
+function updateUserPreferences(userId, updates) {
+  if (typeof window === 'undefined' || !userId) return;
+
+  const current = readUserPreferencesMap();
+  current[userId] = {
+    ...getUserPreferences(userId),
+    ...current[userId],
+    ...updates,
+  };
+  window.localStorage.setItem(USER_PREFERENCES_STORAGE_KEY, JSON.stringify(current));
+}
+
+function readUserActivityMap() {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = window.localStorage.getItem(USER_ACTIVITY_STORAGE_KEY);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getLastActivity(userId) {
+  if (!userId) return null;
+  const value = readUserActivityMap()[userId];
+  return typeof value === 'number' ? value : null;
+}
+
+function setLastActivity(userId, timestamp) {
+  if (typeof window === 'undefined' || !userId) return;
+
+  const current = readUserActivityMap();
+  current[userId] = timestamp;
+  window.localStorage.setItem(USER_ACTIVITY_STORAGE_KEY, JSON.stringify(current));
+}
+
+function clearLastActivity(userId) {
+  if (typeof window === 'undefined' || !userId) return;
+
+  const current = readUserActivityMap();
+  delete current[userId];
+  window.localStorage.setItem(USER_ACTIVITY_STORAGE_KEY, JSON.stringify(current));
+}
 
 /** Helper: get the first value from an aggregated facts map for a given key */
 function factVal(factsMap, key) {
@@ -57,7 +141,7 @@ function dbRelToFrontend(r) {
 }
 
 function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -93,9 +177,15 @@ function App() {
   const [signInForm, setSignInForm] = useState({ email: '' });
   const [createAccountForm, setCreateAccountForm] = useState({ email: '', displayName: '' });
   const [signInCodeForm, setSignInCodeForm] = useState({ email: '', displayName: '', code: '' });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [tutorialMode, setTutorialMode] = useState('hidden');
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const sceneRef = useRef(null);
   const tooltipRef = useRef(null);
   const authOverlayWasVisibleRef = useRef(false);
+  const tutorialPromptedUserRef = useRef(null);
+  const idleTimeoutRef = useRef(null);
 
   const proposalStatus = searchParams.get('proposal');
   const requestedProfileId = searchParams.get('profile');
@@ -103,10 +193,12 @@ function App() {
   const requestedFocusId = searchParams.get('focus') || requestedProfileId;
   const resolvedActiveTreeId = activeTreeId || treeList[0]?.id || null;
   const canAddPeople = !treeLoading && Boolean(resolvedActiveTreeId);
-  const shouldShowSignInEntry = showSignInEntry || (!treeLoading && !resolvedActiveTreeId && !isAuthenticated);
+  const shouldShowSignInEntry = !treeLoading && (!isAuthenticated || showSignInEntry);
+  const hasTutorialOverlay = tutorialMode !== 'hidden';
+  const currentLanguage = normalizeLanguage(i18n.language);
   const isCodeSignInMode = signInEntryMode === 'code';
   const isCreateAccountMode = signInEntryMode === 'create';
-  const appShellClassName = ['app-shell', shouldShowSignInEntry ? 'app-shell--auth-open' : '', authRevealActive ? 'app-shell--reveal' : '']
+  const appShellClassName = ['app-shell', shouldShowSignInEntry || hasTutorialOverlay ? 'app-shell--auth-open' : '', authRevealActive ? 'app-shell--reveal' : '']
     .filter(Boolean)
     .join(' ');
   const resendRemainingSeconds = magicLinkSentAt
@@ -131,6 +223,35 @@ function App() {
     },
   };
   const proposalNotice = proposalStatus ? proposalMessages[proposalStatus] : null;
+  const tutorialSteps = [
+    {
+      title: t('app.tutorial.steps.addPerson.title'),
+      body: t('app.tutorial.steps.addPerson.body'),
+    },
+    {
+      title: t('app.tutorial.steps.openDetails.title'),
+      body: t('app.tutorial.steps.openDetails.body'),
+    },
+    {
+      title: t('app.tutorial.steps.connectFamily.title'),
+      body: t('app.tutorial.steps.connectFamily.body'),
+    },
+    {
+      title: t('app.tutorial.steps.saveMemories.title'),
+      body: t('app.tutorial.steps.saveMemories.body'),
+    },
+    {
+      title: t('app.tutorial.steps.findPeople.title'),
+      body: t('app.tutorial.steps.findPeople.body'),
+    },
+    {
+      title: t('app.tutorial.steps.shareTree.title'),
+      body: t('app.tutorial.steps.shareTree.body'),
+    },
+  ];
+  const activeTutorialStep = tutorialSteps[tutorialStepIndex] || tutorialSteps[0];
+  const isTutorialPrompt = tutorialMode === 'prompt';
+  const isLastTutorialStep = tutorialStepIndex === tutorialSteps.length - 1;
 
   useEffect(() => {
     if (!proposalNotice) return;
@@ -167,6 +288,116 @@ function App() {
   }, [shouldShowSignInEntry]);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    if (darkMode) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, [darkMode]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setDarkMode(false);
+      return;
+    }
+
+    const preferences = getUserPreferences(currentUserId);
+    setDarkMode(preferences.darkMode);
+
+    if (preferences.language && preferences.language !== currentLanguage) {
+      i18n.changeLanguage(preferences.language);
+    }
+  }, [currentLanguage, currentUserId, i18n]);
+
+  const handleLogout = useCallback(async () => {
+    clearLastActivity(currentUserId);
+    setSettingsOpen(false);
+    setShowSignInEntry(false);
+    await logout();
+  }, [currentUserId, logout]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId) {
+      if (idleTimeoutRef.current) {
+        window.clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
+      return undefined;
+    }
+
+    const handleIdleLogout = async () => {
+      await handleLogout();
+      toast(t('app.sessionExpired'), 'info');
+    };
+
+    const lastActivity = getLastActivity(currentUserId);
+    if (lastActivity && Date.now() - lastActivity >= IDLE_LOGOUT_MS) {
+      handleIdleLogout();
+      return undefined;
+    }
+
+    const resetIdleTimer = () => {
+      setLastActivity(currentUserId, Date.now());
+      if (idleTimeoutRef.current) {
+        window.clearTimeout(idleTimeoutRef.current);
+      }
+      idleTimeoutRef.current = window.setTimeout(() => {
+        handleIdleLogout();
+      }, IDLE_LOGOUT_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resetIdleTimer();
+      }
+    };
+
+    const events = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((eventName) => window.addEventListener(eventName, resetIdleTimer, true));
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    resetIdleTimer();
+
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, resetIdleTimer, true));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (idleTimeoutRef.current) {
+        window.clearTimeout(idleTimeoutRef.current);
+        idleTimeoutRef.current = null;
+      }
+    };
+  }, [currentUserId, handleLogout, isAuthenticated, t]);
+
+  useEffect(() => {
+    if (currentUserId) return;
+
+    tutorialPromptedUserRef.current = null;
+    setTutorialMode('hidden');
+    setTutorialStepIndex(0);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId || treeLoading || loading || shouldShowSignInEntry || !resolvedActiveTreeId) {
+      return;
+    }
+
+    if (hasTutorialOverlay) return;
+
+    const preferences = getUserPreferences(currentUserId);
+    if (preferences.tutorialStatus) {
+      tutorialPromptedUserRef.current = currentUserId;
+      return;
+    }
+
+    if (tutorialPromptedUserRef.current === currentUserId) return;
+
+    tutorialPromptedUserRef.current = currentUserId;
+    setTutorialStepIndex(0);
+    setTutorialMode('prompt');
+  }, [currentUserId, hasTutorialOverlay, isAuthenticated, loading, resolvedActiveTreeId, shouldShowSignInEntry, treeLoading]);
+
+  useEffect(() => {
     if (!requestedProfileId || people.length === 0) return;
 
     const target = people.find((person) => person.id === requestedProfileId);
@@ -182,8 +413,18 @@ function App() {
   // ── Load data from API on mount ──────────────────
   useEffect(() => {
     if (treeLoading) return; // wait for TreeContext bootstrap
+    if (!isAuthenticated) {
+      setPeople([]);
+      setRels([]);
+      setSelectedId(null);
+      setFocusedId(null);
+      setLoading(false);
+      return;
+    }
     if (!resolvedActiveTreeId) {
       console.log('[Kin] No active tree set. Waiting for TreeProvider to resolve…');
+      setPeople([]);
+      setRels([]);
       setLoading(false);
       return;
     }
@@ -200,7 +441,7 @@ function App() {
         toast(t('app.failedLoadData'), 'error');
       })
       .finally(() => setLoading(false));
-  }, [resolvedActiveTreeId, treeLoading, t]);
+  }, [isAuthenticated, resolvedActiveTreeId, treeLoading, t]);
 
   const selectedPerson = selectedId ? people.find(p => p.id === selectedId) : null;
   const ownedProfile = currentUserId
@@ -468,6 +709,75 @@ function App() {
     }
   }, [navigate, refreshSession, setActiveTreeId, signInCodeForm.code, signInCodeForm.displayName, signInCodeForm.email, t]);
 
+  const handleLanguageChange = useCallback(async (language) => {
+    const normalizedLanguage = normalizeLanguage(language);
+    if (normalizedLanguage === currentLanguage) return;
+
+    await i18n.changeLanguage(normalizedLanguage);
+    if (currentUserId) {
+      updateUserPreferences(currentUserId, { language: normalizedLanguage });
+    }
+  }, [currentLanguage, currentUserId, i18n]);
+
+  const handleDarkModeChange = useCallback((event) => {
+    const nextDarkMode = event.target.checked;
+    setDarkMode(nextDarkMode);
+    if (currentUserId) {
+      updateUserPreferences(currentUserId, { darkMode: nextDarkMode });
+    }
+  }, [currentUserId]);
+
+  const handleOpenSettings = useCallback(() => {
+    setMobileMenuOpen(false);
+    setSettingsOpen(true);
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
+  }, []);
+
+  const handleOpenTutorial = useCallback(() => {
+    setMobileMenuOpen(false);
+    setSettingsOpen(false);
+    setTutorialStepIndex(0);
+    setTutorialMode('tour');
+  }, []);
+
+  const handleStartTutorial = useCallback(() => {
+    setTutorialStepIndex(0);
+    setTutorialMode('tour');
+  }, []);
+
+  const handleTutorialNotNow = useCallback(() => {
+    setTutorialMode('hidden');
+    setTutorialStepIndex(0);
+  }, []);
+
+  const handleTutorialNeverShowAgain = useCallback(() => {
+    updateUserPreferences(currentUserId, { tutorialStatus: 'never' });
+    tutorialPromptedUserRef.current = currentUserId;
+    setTutorialMode('hidden');
+    setTutorialStepIndex(0);
+  }, [currentUserId]);
+
+  const handleTutorialBack = useCallback(() => {
+    setTutorialStepIndex((current) => Math.max(0, current - 1));
+  }, []);
+
+  const handleTutorialNext = useCallback(() => {
+    setTutorialStepIndex((current) => Math.min(tutorialSteps.length - 1, current + 1));
+  }, [tutorialSteps.length]);
+
+  const handleTutorialFinish = useCallback(() => {
+    updateUserPreferences(currentUserId, { tutorialStatus: 'completed' });
+    tutorialPromptedUserRef.current = currentUserId;
+    setTutorialMode('hidden');
+    setTutorialStepIndex(0);
+    if (canAddPeople) {
+      setIsModalOpen(true);
+    }
+  }, [canAddPeople, currentUserId]);
+
   return (
     <>
       {loading && (
@@ -511,13 +821,15 @@ function App() {
           onOpenModal={() => canAddPeople && setIsModalOpen(true)}
           currentUser={currentUser}
           isAuthenticated={isAuthenticated}
-          onLogout={logout}
+          onLogout={handleLogout}
           onOpenSignIn={() => {
             setMagicLinkSent(false);
             setMagicLinkSentAt(null);
             setSignInEntryMode('link');
             setShowSignInEntry(true);
           }}
+          onOpenSettings={handleOpenSettings}
+          onOpenTutorial={handleOpenTutorial}
           ownedProfile={ownedProfile}
           onOpenPublicProfile={() => ownedProfile && navigate(`/p/${ownedProfile.public_slug}`)}
           sceneRef={sceneRef}
@@ -626,6 +938,45 @@ function App() {
           />
         )}
       </div>
+      {settingsOpen && isAuthenticated && (
+        <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="kin-settings-title">
+          <button className="settings-modal__backdrop" type="button" onClick={handleCloseSettings} aria-label={t('common.dismiss')} />
+          <div className="settings-modal__card">
+            <div className="settings-modal__header">
+              <div>
+                <div className="settings-modal__eyebrow">{t('app.settings.eyebrow')}</div>
+                <h2 id="kin-settings-title" className="settings-modal__title">{t('app.settings.title')}</h2>
+              </div>
+              <button type="button" className="settings-modal__close" onClick={handleCloseSettings} aria-label={t('common.dismiss')}>×</button>
+            </div>
+            <div className="settings-modal__section">
+              <div className="settings-modal__labelWrap">
+                <div className="settings-modal__label">{t('app.settings.languageTitle')}</div>
+                <div className="settings-modal__help">{t('app.settings.languageHelp')}</div>
+              </div>
+              <LanguageToggle currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
+            </div>
+            <div className="settings-modal__section">
+              <div className="settings-modal__labelWrap">
+                <div className="settings-modal__label">{t('app.settings.darkModeTitle')}</div>
+                <div className="settings-modal__help">{t('app.settings.darkModeHelp')}</div>
+              </div>
+              <label className="settings-modal__switch">
+                <input type="checkbox" checked={darkMode} onChange={handleDarkModeChange} />
+                <span className="settings-modal__switchTrack">
+                  <span className="settings-modal__switchThumb" />
+                </span>
+                <span className="settings-modal__switchText">{darkMode ? t('app.settings.darkModeOn') : t('app.settings.darkModeOff')}</span>
+              </label>
+            </div>
+            <div className="settings-modal__section settings-modal__section--actions">
+              <button type="button" className="settings-modal__action" onClick={handleOpenTutorial}>
+                {t('app.settings.tutorialButton')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {shouldShowSignInEntry && (
         <div className="auth-entry-screen">
           <div className="auth-entry-screen__ambient" aria-hidden="true">
@@ -638,17 +989,8 @@ function App() {
             <div className="auth-entry-screen__ripple auth-entry-screen__ripple--two" />
             <div className="auth-entry-screen__ripple auth-entry-screen__ripple--three" />
           </div>
-          <div style={{
-            width: 'min(460px, 100%)',
-            background: '#FDFBF8',
-            borderRadius: 18,
-            border: '1px solid #DCD5C8',
-            boxShadow: '0 20px 50px rgba(45,42,38,0.16)',
-            padding: 30,
-            position: 'relative',
-            zIndex: 1,
-          }}>
-            {showSignInEntry && resolvedActiveTreeId && (
+          <div className="auth-entry-screen__card">
+            {showSignInEntry && isAuthenticated && resolvedActiveTreeId && (
               <button
                 type="button"
                 onClick={() => {
@@ -657,58 +999,37 @@ function App() {
                   setSignInEntryMode('link');
                   setShowSignInEntry(false);
                 }}
-                style={{
-                  position: 'absolute',
-                  top: 12,
-                  right: 12,
-                  width: 32,
-                  height: 32,
-                  borderRadius: 999,
-                  border: '1px solid #DCD5C8',
-                  background: '#FDFBF8',
-                  color: '#9A948E',
-                  cursor: 'pointer',
-                  fontSize: 16,
-                }}
+                className="auth-entry-screen__dismiss"
+                style={{ position: 'absolute', top: 12, right: 12 }}
                 aria-label={t('common.dismiss')}
               >
                 ×
               </button>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
-              <LanguageToggle />
+            <div className="auth-entry-screen__language">
+              <LanguageToggle currentLanguage={currentLanguage} onLanguageChange={handleLanguageChange} />
             </div>
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#8A7350', marginBottom: 8 }}>
+            <div className="auth-entry-screen__header">
+              <div className="auth-entry-screen__eyebrow">
                 {isCreateAccountMode ? t('app.newToKin') : t('app.returningMembers')}
               </div>
-              <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, color: '#2D2A26', margin: 0 }}>
+              <h2 className="auth-entry-screen__title">
                 {isCodeSignInMode ? t('app.signInCodeTitle') : isCreateAccountMode ? t('app.createAccountTitle') : t('app.signInEntryTitle')}
               </h2>
             </div>
-            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, lineHeight: 1.7, color: '#5E5850', textAlign: 'center', marginBottom: 18 }}>
+            <p className="auth-entry-screen__body">
               {isCodeSignInMode ? t('app.signInCodeBody') : isCreateAccountMode ? t('app.createAccountBody') : t('app.signInEntryBody')}
             </p>
             {magicLinkSent ? (
               <>
-                <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, lineHeight: 1.8, color: '#3D7C47', textAlign: 'center', margin: '4px 0 18px' }}>
+                <p className="auth-entry-screen__success">
                   {t('app.signInEntrySuccess')}
                 </p>
                 <button
                   type="button"
                   onClick={handleResendSignInLink}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    border: 'none',
-                    borderRadius: 10,
-                    background: canResendMagicLink ? '#3D7C47' : '#B9C8BC',
-                    color: '#fff',
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: canResendMagicLink ? 'pointer' : 'not-allowed',
-                  }}
+                  className="auth-entry-screen__primaryButton"
+                  style={canResendMagicLink ? undefined : { background: 'var(--ui-shell-border-strong)', boxShadow: 'none' }}
                   disabled={!canResendMagicLink}
                 >
                   {canResendMagicLink
@@ -718,31 +1039,19 @@ function App() {
                 <button
                   type="button"
                   onClick={handleTryAnotherEmail}
-                  style={{
-                    width: '100%',
-                    marginTop: 12,
-                    padding: '11px 14px',
-                    border: '1px solid #DCD5C8',
-                    borderRadius: 10,
-                    background: '#FDFBF8',
-                    color: '#7C7266',
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  className="auth-entry-screen__secondaryButton"
                 >
                   {t('app.tryAnotherEmail')}
                 </button>
               </>
             ) : !isCodeSignInMode && !isCreateAccountMode ? (
               <>
-                <form onSubmit={handleSendSignInLink} style={{ display: 'grid', gap: 8 }}>
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
+                <form onSubmit={handleSendSignInLink} className="auth-entry-screen__form">
+                  <label className="auth-entry-screen__label">
                     {t('joinPage.email')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="email"
                     value={signInForm.email}
                     onChange={(event) => setSignInForm((current) => ({ ...current, email: event.target.value }))}
@@ -751,54 +1060,24 @@ function App() {
                   />
                   <button
                     type="submit"
-                    style={{ marginTop: 12, padding: '12px 14px', border: 'none', borderRadius: 10, background: '#3D7C47', color: '#fff', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                    className="auth-entry-screen__primaryButton"
                     disabled={signInSending}
                   >
                     {signInSending ? t('app.sendingSignInLink') : t('app.sendSignInLink')}
                   </button>
                 </form>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28, marginTop: 18 }}>
+                <div className="auth-entry-screen__linkRow">
                   <button
                     type="button"
                     onClick={() => setSignInEntryMode('create')}
-                    style={{
-                      minHeight: 44,
-                      padding: '10px 6px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#7C7266',
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      textAlign: 'center',
-                      textDecoration: 'underline',
-                      textUnderlineOffset: '0.18em',
-                      textDecorationThickness: '1.5px',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                    }}
+                    className="auth-entry-screen__textButton"
                   >
                     {t('app.createAccountOption')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setSignInEntryMode('code')}
-                    style={{
-                      minHeight: 44,
-                      padding: '10px 6px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#5F513B',
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      textAlign: 'center',
-                      textDecoration: 'underline',
-                      textUnderlineOffset: '0.18em',
-                      textDecorationThickness: '1.5px',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                    }}
+                    className="auth-entry-screen__textButton auth-entry-screen__textButton--accent"
                   >
                     {t('app.useCodeOption')}
                   </button>
@@ -806,23 +1085,23 @@ function App() {
               </>
             ) : isCreateAccountMode ? (
               <>
-                <form onSubmit={handleSendCreateAccountLink} style={{ display: 'grid', gap: 8 }}>
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E' }}>
+                <form onSubmit={handleSendCreateAccountLink} className="auth-entry-screen__form">
+                  <label className="auth-entry-screen__label">
                     {t('joinPage.displayName')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="text"
                     value={createAccountForm.displayName}
                     onChange={(event) => setCreateAccountForm((current) => ({ ...current, displayName: event.target.value }))}
                     placeholder={t('treeAccess.namePlaceholder')}
                     required
                   />
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
+                  <label className="auth-entry-screen__label">
                     {t('joinPage.email')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="email"
                     value={createAccountForm.email}
                     onChange={(event) => setCreateAccountForm((current) => ({ ...current, email: event.target.value }))}
@@ -831,7 +1110,7 @@ function App() {
                   />
                   <button
                     type="submit"
-                    style={{ marginTop: 12, padding: '12px 14px', border: 'none', borderRadius: 10, background: '#3D7C47', color: '#fff', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                    className="auth-entry-screen__primaryButton"
                     disabled={signInSending}
                   >
                     {signInSending ? t('app.creatingAccountLink') : t('app.createAccountAction')}
@@ -840,53 +1119,41 @@ function App() {
                 <button
                   type="button"
                   onClick={() => setSignInEntryMode('link')}
-                  style={{
-                    width: '100%',
-                    marginTop: 12,
-                    padding: '11px 14px',
-                    border: '1px solid #DCD5C8',
-                    borderRadius: 10,
-                    background: '#FDFBF8',
-                    color: '#7C7266',
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  className="auth-entry-screen__secondaryButton"
                 >
                   {t('app.backToEmailSignIn')}
                 </button>
               </>
             ) : (
               <>
-                <form onSubmit={handleJoinWithAccessCode} style={{ display: 'grid', gap: 8 }}>
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E' }}>
+                <form onSubmit={handleJoinWithAccessCode} className="auth-entry-screen__form">
+                  <label className="auth-entry-screen__label">
                     {t('treeAccess.accessCode')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="text"
                     value={signInCodeForm.code}
                     onChange={(event) => setSignInCodeForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))}
                     placeholder={t('treeAccess.codePlaceholder')}
                     required
                   />
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
+                  <label className="auth-entry-screen__label">
                     {t('joinPage.displayName')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="text"
                     value={signInCodeForm.displayName}
                     onChange={(event) => setSignInCodeForm((current) => ({ ...current, displayName: event.target.value }))}
                     placeholder={t('joinPage.yourName')}
                     required
                   />
-                  <label style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A948E', marginTop: 6 }}>
+                  <label className="auth-entry-screen__label">
                     {t('joinPage.email')}
                   </label>
                   <input
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #DCD5C8', background: '#F0EBE2', color: '#2D2A26', fontFamily: "'Inter', sans-serif", fontSize: 14 }}
+                    className="auth-entry-screen__input"
                     type="email"
                     value={signInCodeForm.email}
                     onChange={(event) => setSignInCodeForm((current) => ({ ...current, email: event.target.value }))}
@@ -895,7 +1162,7 @@ function App() {
                   />
                   <button
                     type="submit"
-                    style={{ marginTop: 12, padding: '12px 14px', border: '1px solid #CBBDA7', borderRadius: 10, background: '#EFE6D8', color: '#5F513B', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                    className="auth-entry-screen__primaryButton"
                     disabled={codeJoinSubmitting}
                   >
                     {codeJoinSubmitting ? t('app.joiningWithCode') : t('app.signInWithCode')}
@@ -904,23 +1171,75 @@ function App() {
                 <button
                   type="button"
                   onClick={() => setSignInEntryMode('link')}
-                  style={{
-                    width: '100%',
-                    marginTop: 12,
-                    padding: '11px 14px',
-                    border: '1px solid #DCD5C8',
-                    borderRadius: 10,
-                    background: '#FDFBF8',
-                    color: '#7C7266',
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  className="auth-entry-screen__secondaryButton"
                 >
                   {t('app.backToEmailSignIn')}
                 </button>
               </>
+            )}
+          </div>
+        </div>
+      )}
+      {hasTutorialOverlay && !shouldShowSignInEntry && (
+        <div className="tutorial-overlay">
+          <div className="tutorial-overlay__ambient" aria-hidden="true">
+            <div className="tutorial-overlay__aura tutorial-overlay__aura--one" />
+            <div className="tutorial-overlay__aura tutorial-overlay__aura--two" />
+            <div className="tutorial-overlay__grid" />
+          </div>
+          <div className="tutorial-overlay__card">
+            <div className="tutorial-overlay__eyebrow">
+              {isTutorialPrompt
+                ? t('app.tutorial.welcomeEyebrow')
+                : t('app.tutorial.stepCounter', { current: tutorialStepIndex + 1, total: tutorialSteps.length })}
+            </div>
+            <h2 className="tutorial-overlay__title">
+              {isTutorialPrompt ? t('app.tutorial.welcomeTitle') : activeTutorialStep.title}
+            </h2>
+            <p className="tutorial-overlay__body">
+              {isTutorialPrompt ? t('app.tutorial.welcomeBody') : activeTutorialStep.body}
+            </p>
+
+            {!isTutorialPrompt && (
+              <div className="tutorial-overlay__progress" aria-hidden="true">
+                {tutorialSteps.map((step, index) => (
+                  <span
+                    key={step.title}
+                    className={`tutorial-overlay__dot ${index === tutorialStepIndex ? 'tutorial-overlay__dot--active' : ''}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            {isTutorialPrompt ? (
+              <div className="tutorial-overlay__actions tutorial-overlay__actions--stacked">
+                <button type="button" className="tutorial-overlay__button tutorial-overlay__button--primary" onClick={handleStartTutorial}>
+                  {t('app.tutorial.startTour')}
+                </button>
+                <button type="button" className="tutorial-overlay__button tutorial-overlay__button--secondary" onClick={handleTutorialNotNow}>
+                  {t('app.tutorial.notNow')}
+                </button>
+                <button type="button" className="tutorial-overlay__button tutorial-overlay__button--ghost" onClick={handleTutorialNeverShowAgain}>
+                  {t('app.tutorial.neverShowAgain')}
+                </button>
+              </div>
+            ) : (
+              <div className="tutorial-overlay__actions">
+                <button type="button" className="tutorial-overlay__button tutorial-overlay__button--secondary" onClick={tutorialStepIndex === 0 ? handleTutorialNotNow : handleTutorialBack}>
+                  {tutorialStepIndex === 0 ? t('app.tutorial.skipForNow') : t('common.back')}
+                </button>
+                <button
+                  type="button"
+                  className="tutorial-overlay__button tutorial-overlay__button--primary"
+                  onClick={isLastTutorialStep ? handleTutorialFinish : handleTutorialNext}
+                >
+                  {isLastTutorialStep
+                    ? canAddPeople
+                      ? t('app.tutorial.finishAndAddPerson')
+                      : t('app.tutorial.finish')
+                    : t('app.tutorial.nextStep')}
+                </button>
+              </div>
             )}
           </div>
         </div>

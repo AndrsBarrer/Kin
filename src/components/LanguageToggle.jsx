@@ -1,20 +1,11 @@
 import { useTranslation } from 'react-i18next';
 
-const colors = {
-  active: '#4A5D23',
-  background: '#F9F7F2',
-  border: '#D8D2C4',
-  text: '#3D3A34',
-  muted: '#766F63',
-  shadow: 'rgba(43, 52, 25, 0.12)',
-};
-
 function getButtonStyle(isActive, isFirst, isLast) {
   return {
     appearance: 'none',
     border: 'none',
-    background: isActive ? colors.active : 'transparent',
-    color: isActive ? colors.background : colors.text,
+    background: isActive ? 'linear-gradient(135deg, var(--green) 0%, var(--green-light) 100%)' : 'transparent',
+    color: isActive ? '#fff' : 'var(--text)',
     cursor: isActive ? 'default' : 'pointer',
     fontFamily: "'Inter', sans-serif",
     fontSize: 11,
@@ -25,16 +16,22 @@ function getButtonStyle(isActive, isFirst, isLast) {
     minWidth: 34,
     padding: '0 10px',
     borderRadius: isFirst ? '999px 0 0 999px' : isLast ? '0 999px 999px 0' : 0,
-    transition: 'background 160ms ease, color 160ms ease, transform 160ms ease',
+    boxShadow: isActive ? '0 10px 20px color-mix(in srgb, var(--green) 22%, transparent)' : 'none',
+    transition: 'background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease',
   };
 }
 
-export default function LanguageToggle() {
+export default function LanguageToggle({ currentLanguage: controlledLanguage = null, onLanguageChange = null }) {
   const { i18n, t } = useTranslation();
   const currentLanguage = i18n.language?.slice(0, 2) === 'es' ? 'es' : 'en';
+  const activeLanguage = controlledLanguage || currentLanguage;
 
   const handleLanguageChange = async (language) => {
-    if (language === currentLanguage) return;
+    if (language === activeLanguage) return;
+    if (onLanguageChange) {
+      await onLanguageChange(language);
+      return;
+    }
     await i18n.changeLanguage(language);
   };
 
@@ -47,27 +44,27 @@ export default function LanguageToggle() {
         alignItems: 'center',
         padding: 3,
         borderRadius: 999,
-        background: colors.background,
-        border: `1px solid ${colors.border}`,
-        boxShadow: `0 4px 12px ${colors.shadow}`,
+        background: 'var(--ui-shell-surface-soft)',
+        border: '1px solid var(--ui-shell-border)',
+        boxShadow: '0 8px 18px var(--ui-shell-shadow)',
         flexShrink: 0,
       }}
     >
       <button
         type="button"
         onClick={() => handleLanguageChange('en')}
-        aria-pressed={currentLanguage === 'en'}
+        aria-pressed={activeLanguage === 'en'}
         aria-label={t('languageToggle.english')}
-        style={getButtonStyle(currentLanguage === 'en', true, false)}
+        style={getButtonStyle(activeLanguage === 'en', true, false)}
       >
         EN
       </button>
       <button
         type="button"
         onClick={() => handleLanguageChange('es')}
-        aria-pressed={currentLanguage === 'es'}
+        aria-pressed={activeLanguage === 'es'}
         aria-label={t('languageToggle.spanish')}
-        style={getButtonStyle(currentLanguage === 'es', false, true)}
+        style={getButtonStyle(activeLanguage === 'es', false, true)}
       >
         ES
       </button>

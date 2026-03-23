@@ -26,6 +26,20 @@
   --text-dim: #5E5850;
   --text-muted: #9A948E;
 
+  --ui-shell-backdrop: rgba(38, 30, 24, 0.34);
+  --ui-shell-surface: color-mix(in srgb, var(--surface) 86%, var(--brown) 14%);
+  --ui-shell-surface-strong: color-mix(in srgb, var(--surface2) 74%, var(--brown) 26%);
+  --ui-shell-surface-soft: color-mix(in srgb, var(--surface) 72%, var(--bg) 28%);
+  --ui-shell-border: color-mix(in srgb, var(--border) 84%, var(--brown) 16%);
+  --ui-shell-border-strong: color-mix(in srgb, var(--border-strong) 80%, var(--brown) 20%);
+  --ui-shell-shadow: rgba(41, 31, 24, 0.18);
+  --ui-shell-shadow-strong: rgba(41, 31, 24, 0.3);
+  --ui-shell-button: color-mix(in srgb, var(--surface2) 76%, var(--brown) 24%);
+  --ui-shell-button-hover: color-mix(in srgb, var(--surface) 72%, var(--brown-light) 28%);
+  --ui-shell-button-text: #f6f1e9;
+  --ui-shell-subtle: color-mix(in srgb, var(--green-bg) 44%, var(--surface) 56%);
+  --ui-shell-subtle-strong: color-mix(in srgb, var(--green-bg) 68%, var(--surface2) 32%);
+
   /* Relationship tag colors */
   --tag-parent-bg: rgba(61,124,71,0.10);  --tag-parent: #3D7C47;
   --tag-marry-bg: rgba(58,114,160,0.10);  --tag-marry: #3A72A0;
@@ -42,6 +56,48 @@
   --gold-bg: var(--green-bg);
 }
 
+:root[data-theme='dark'] {
+  --bg: #181614;
+  --surface: #221f1c;
+  --surface2: #2b2723;
+  --border: #3c352f;
+  --border-strong: #544a41;
+
+  --green: #7fc18a;
+  --green-light: #95d29f;
+  --green-bg: rgba(127, 193, 138, 0.14);
+
+  --accent: #7baed8;
+  --accent-bg: rgba(123, 174, 216, 0.14);
+  --brown: #d2b48a;
+  --brown-light: #e0c39b;
+
+  --text: #f4efe7;
+  --text-dim: #d2c8bc;
+  --text-muted: #9f9385;
+
+  --ui-shell-backdrop: rgba(8, 7, 6, 0.52);
+  --ui-shell-surface: color-mix(in srgb, var(--surface) 84%, var(--brown) 16%);
+  --ui-shell-surface-strong: color-mix(in srgb, var(--surface2) 72%, var(--brown) 28%);
+  --ui-shell-surface-soft: color-mix(in srgb, var(--surface) 72%, var(--bg) 28%);
+  --ui-shell-border: color-mix(in srgb, var(--border) 86%, var(--brown) 14%);
+  --ui-shell-border-strong: color-mix(in srgb, var(--border-strong) 82%, var(--brown) 18%);
+  --ui-shell-shadow: rgba(0, 0, 0, 0.28);
+  --ui-shell-shadow-strong: rgba(0, 0, 0, 0.42);
+  --ui-shell-button: color-mix(in srgb, var(--surface2) 76%, var(--brown) 24%);
+  --ui-shell-button-hover: color-mix(in srgb, var(--surface) 78%, var(--brown-light) 22%);
+  --ui-shell-button-text: #f4efe7;
+  --ui-shell-subtle: color-mix(in srgb, var(--green-bg) 52%, var(--surface) 48%);
+  --ui-shell-subtle-strong: color-mix(in srgb, var(--green-bg) 68%, var(--surface2) 32%);
+
+  --tag-parent-bg: rgba(127, 193, 138, 0.14);
+  --tag-parent: #95d29f;
+  --tag-marry-bg: rgba(123, 174, 216, 0.14);
+  --tag-marry: #9ac4e7;
+  --tag-child-bg: rgba(188, 154, 226, 0.16);
+  --tag-child: #c3a4ea;
+}
+
 html, body, #root {
   width: 100%; height: 100%; overflow: hidden;
   background: var(--bg);
@@ -52,6 +108,24 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--green) 12%, transparent), transparent 24%),
+    radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 22%),
+    radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--brown) 10%, transparent), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 68%, var(--bg)) 0%, var(--bg) 100%);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--green) 28%, transparent);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 @keyframes toast-in {

@@ -162,7 +162,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
       try {
         const results = await profilesApi.duplicates(activeTreeId, firstName, lastName);
         setDupes(results);
-      } catch (_) {
+      } catch {
         setDupes([]);
       }
     }, 400);

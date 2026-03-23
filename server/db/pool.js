@@ -172,25 +172,25 @@ db.exec(`
 // Migrate: add password_hash column if it doesn't exist yet
 try {
   db.exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
-} catch (_) {
+} catch {
   // Column already exists — ignore
 }
 
 try {
   db.exec(`ALTER TABLE users ADD COLUMN last_digest_sent_at TEXT`);
-} catch (_) {
+} catch {
   // Column already exists — ignore
 }
 
 try {
   db.exec(`ALTER TABLE media ADD COLUMN added_by TEXT`);
-} catch (_) {
+} catch {
   // Column already exists — ignore
 }
 
 try {
   db.exec(`ALTER TABLE media ADD COLUMN deleted_at TEXT`);
-} catch (_) {
+} catch {
   // Column already exists — ignore
 }
 

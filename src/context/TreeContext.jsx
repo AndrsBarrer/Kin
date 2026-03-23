@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { trees as treesApi, bootstrap, setToken, auth } from '../api/client';
+import { trees as treesApi, setToken, auth } from '../api/client';
 
 const TreeContext = createContext(null);
 
@@ -14,7 +14,6 @@ export function useTree() {
   return ctx;
 }
 
-// eslint-disable-next-line react/prop-types
 export function TreeProvider({ children }) {
   const location = useLocation();
   const [treeList, setTreeList] = useState([]);
@@ -96,65 +95,25 @@ export function TreeProvider({ children }) {
 
   useEffect(() => {
     async function init() {
-      const allowBootstrap = location.pathname === '/';
-      const isDeferredAuthRoute = location.pathname === '/auth/verify' || location.pathname === '/join';
-      const hasStoredSession = typeof window !== 'undefined' && Boolean(window.localStorage.getItem('kin_token'));
-
-      async function doBootstrap() {
-        const result = await bootstrap.init();
-        if (result.sessionToken) {
-          setToken(result.sessionToken);
-        }
-        await refreshSession({ syncTrees: true });
-      }
-
-      if (isDeferredAuthRoute && !hasStoredSession) {
-        console.log('[Kin] Deferred auth route detected. Waiting for route-specific sign-in completion.');
-        setLoading(false);
-        return;
-      }
-
       try {
-        const me = await refreshSession({ syncTrees: false });
+        const me = await refreshSession({ syncTrees: true });
         if (me) {
-          const list = await loadTrees();
-          if (list.length === 0 && allowBootstrap) {
-            console.log('[Kin] Authenticated user has no trees — creating first tree…');
-            await doBootstrap();
-          }
           return;
         }
 
-        if (!allowBootstrap) {
-          console.log('[Kin] Auth flow route detected without a session. Waiting for sign-in completion.');
-          return;
-        }
-
-        if (!me) {
-          console.log('[Kin] No authenticated session — attempting first-run bootstrap…');
-          await doBootstrap();
-        }
+        console.log('[Kin] No authenticated session. Waiting for sign-in.');
+        setTreeList([]);
+        setActiveTreeId(null);
       } catch (err) {
-        if (err.status === 409) {
-          console.log('[Kin] Existing tree detected without an active session. Waiting for sign-in.');
-        } else {
-          console.warn('[Kin] Tree init failed, attempting bootstrap…', err.message);
-          try {
-            await doBootstrap();
-          } catch (bootstrapErr) {
-            if (bootstrapErr.status === 409) {
-              console.log('[Kin] Existing tree detected without an active session. Waiting for sign-in.');
-            } else {
-              console.error('[Kin] Bootstrap failed:', bootstrapErr.message);
-            }
-          }
-        }
+        console.error('[Kin] Failed to initialize session:', err.message);
+        setTreeList([]);
+        setActiveTreeId(null);
       } finally {
         setLoading(false);
       }
     }
     init();
-  }, [loadTrees, location.pathname, refreshSession]);
+  }, [location.pathname, refreshSession, setActiveTreeId]);
 
   return (
     <TreeContext.Provider value={{

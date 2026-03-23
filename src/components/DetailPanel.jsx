@@ -1,4 +1,3 @@
-/* eslint-disable react/prop-types */
 import { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BRANCH, getRels } from '../data/familyData';
