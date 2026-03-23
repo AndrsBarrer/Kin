@@ -116,8 +116,15 @@ export default function TopBar({
   const handleMobileMenuToggle = () => {
     if (mobileMenuOpen) {
       setMobileToolsOpen(false);
+      onMobileMenuOpenChange(false);
+      return;
     }
-    onMobileMenuOpenChange(!mobileMenuOpen);
+
+    if (pathMode) {
+      handlePathCancel();
+    }
+
+    onMobileMenuOpenChange(true);
   };
 
   const handleCloseMobileMenu = () => {

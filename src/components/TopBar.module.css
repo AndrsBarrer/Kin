@@ -328,6 +328,7 @@
     width: 100%; padding: 0 14px; border-radius: 10px; border: 1px solid var(--ui-shell-border);
     background: var(--ui-shell-button); color: var(--ui-shell-button-text); font-family: 'Inter', sans-serif;
     font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 8px 18px var(--ui-shell-shadow);
   }
   .mobileActionPrimary {
     background: var(--green); border-color: var(--green); color: #fff;
@@ -359,6 +360,7 @@
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
+    box-shadow: 0 8px 18px var(--ui-shell-shadow);
   }
   .mobileSubmenuCaret {
     display: inline-flex;
@@ -395,6 +397,25 @@
   }
   .mobileSubmenuAction:hover {
     background: color-mix(in srgb, var(--ui-shell-surface-soft) 62%, transparent);
+    color: var(--text);
+  }
+  :global(:root:not([data-theme='dark'])) .mobileAction:not(.mobileActionPrimary):not(.mobileActionActive),
+  :global(:root:not([data-theme='dark'])) .mobileSubmenuToggle {
+    background: #fff;
+    border-color: var(--ui-shell-border-strong);
+    color: var(--text);
+    box-shadow: 0 10px 22px rgba(74, 57, 44, 0.12);
+  }
+  :global(:root:not([data-theme='dark'])) .mobileAction:not(.mobileActionPrimary):not(.mobileActionActive):hover,
+  :global(:root:not([data-theme='dark'])) .mobileSubmenuToggle:hover {
+    background: color-mix(in srgb, #ffffff 86%, var(--surface2) 14%);
+    border-color: var(--border-strong);
+  }
+  :global(:root:not([data-theme='dark'])) .mobileSubmenu {
+    background: color-mix(in srgb, #ffffff 84%, var(--surface2) 16%);
+    border-color: var(--ui-shell-border);
+  }
+  :global(:root:not([data-theme='dark'])) .mobileSubmenuAction {
     color: var(--text);
   }
   .pathbar {
