@@ -622,6 +622,7 @@ function App() {
     try {
       await auth.sendMagicLink({
         email: signInForm.email.trim(),
+        locale: currentLanguage,
       });
       setMagicLinkSent(true);
       setMagicLinkSentAt(Date.now());
@@ -632,7 +633,7 @@ function App() {
     } finally {
       setSignInSending(false);
     }
-  }, [signInForm.email, t]);
+  }, [currentLanguage, signInForm.email, t]);
 
   const sendCreateAccountLinkRequest = useCallback(async () => {
     setSignInSending(true);
@@ -641,6 +642,7 @@ function App() {
         email: createAccountForm.email.trim(),
         displayName: createAccountForm.displayName.trim(),
         createAccount: true,
+        locale: currentLanguage,
       });
       setMagicLinkSent(true);
       setMagicLinkSentAt(Date.now());
@@ -651,7 +653,7 @@ function App() {
     } finally {
       setSignInSending(false);
     }
-  }, [createAccountForm.displayName, createAccountForm.email, t]);
+  }, [createAccountForm.displayName, createAccountForm.email, currentLanguage, t]);
 
   const handleSendSignInLink = useCallback(async (event) => {
     event.preventDefault();

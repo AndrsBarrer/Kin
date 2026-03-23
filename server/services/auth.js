@@ -2,6 +2,7 @@ import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import cryptoRandomString from 'crypto-random-string';
 import pool from '../db/pool.js';
+import { normalizeLocale, translate } from './i18n.js';
 
 const scryptAsync = promisify(scrypt);
 
@@ -75,6 +76,39 @@ export async function upsertUserByEmail(email, options = {}, dbClient = pool) {
   return rows[0];
 }
 
+async function ensureUserHasDefaultTree(userId, locale = 'en', dbClient = pool) {
+  const { rows: existingMemberships } = await dbClient.query(
+    `SELECT tree_id
+     FROM tree_members
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  if (existingMemberships.length > 0) {
+    return null;
+  }
+
+  const { rows: [tree] } = await dbClient.query(
+    `INSERT INTO trees (name, description, created_by)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [
+      translate(locale, 'auth.defaultTreeName'),
+      translate(locale, 'auth.defaultTreeDescription'),
+      userId,
+    ]
+  );
+
+  await dbClient.query(
+    `INSERT INTO tree_members (tree_id, user_id, role)
+     VALUES ($1, $2, 'admin')`,
+    [tree.id, userId]
+  );
+
+  return tree;
+}
+
 /**
  * Create or find user by email, generate a magic-link token.
  * Returns { user, token, magicLink }.
@@ -83,18 +117,23 @@ export async function createMagicLink(email, options = {}) {
   const normalizedEmail = normalizeEmail(email);
   const normalizedDisplayName = options.displayName?.trim() || null;
   const canCreateAccount = Boolean(options.createAccount || options.claimToken);
+  const locale = normalizeLocale(options.locale);
 
   const existingUser = await findUserByEmail(normalizedEmail);
 
   if (!existingUser && !canCreateAccount) {
-    throw Object.assign(new Error('No account exists for this email yet. Create an account first or use a tree access code.'), { status: 404 });
+    throw Object.assign(new Error(translate(locale, 'auth.noAccount')), { status: 404 });
   }
 
   if (!existingUser && !normalizedDisplayName) {
-    throw Object.assign(new Error('Enter your full name to create an account'), { status: 400 });
+    throw Object.assign(new Error(translate(locale, 'auth.missingDisplayName')), { status: 400 });
   }
 
   const user = await upsertUserByEmail(normalizedEmail, { displayName: normalizedDisplayName });
+
+  if (!existingUser && options.createAccount && !options.claimToken && !options.treeId) {
+    await ensureUserHasDefaultTree(user.id, locale);
+  }
 
   // Generate token
   const token = cryptoRandomString({ length: 64, type: 'url-safe' });

@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { auth, join } from '../api/client';
 
 export default function JoinPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -44,6 +44,7 @@ export default function JoinPage() {
         email: email.trim(),
         displayName: displayName.trim(),
         claimToken: token,
+        locale: i18n.language?.slice(0, 2) === 'es' ? 'es' : 'en',
       });
       setStatus('done');
       console.log('[Kin] Magic link sent for profile claim.');

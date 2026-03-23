@@ -27,7 +27,7 @@ async function request(path, options = {}) {
 
 // ── Auth ────────────────────────────────────────────
 export const auth = {
-  sendMagicLink: ({ email, displayName, claimToken, treeId, createAccount } = {}) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email, displayName, claimToken, treeId, createAccount }) }),
+  sendMagicLink: ({ email, displayName, claimToken, treeId, createAccount, locale } = {}) => request('/auth/magic-link', { method: 'POST', body: JSON.stringify({ email, displayName, claimToken, treeId, createAccount, locale }) }),
   verify: (token) => request('/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),

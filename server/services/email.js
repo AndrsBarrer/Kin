@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { Resend } from 'resend';
+import { normalizeLocale, translate } from './i18n.js';
 
 const MAGIC_LINK_TTL = parseInt(process.env.MAGIC_LINK_TTL_MINUTES || '15', 10);
 const EMAIL_DELIVERY_DISABLED = process.env.NODE_ENV === 'test' || process.env.KIN_DISABLE_EMAIL_DELIVERY === '1';
@@ -53,7 +54,29 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function buildEmailShell({ preheader, eyebrow, title, intro, ctaLabel, ctaUrl, detailRows = [], footerNote }) {
+function getMagicLinkCopy(locale, isClaimFlow) {
+  const prefix = isClaimFlow ? 'email.magicLink.claim' : 'email.magicLink.signIn';
+  return {
+    subject: translate(locale, `${prefix}.subject`),
+    preheader: translate(locale, `${prefix}.preheader`),
+    eyebrow: translate(locale, `${prefix}.eyebrow`),
+    title: translate(locale, `${prefix}.title`),
+    intro: translate(locale, `${prefix}.intro`),
+    ctaLabel: translate(locale, `${prefix}.ctaLabel`),
+    recipientFallback: translate(locale, `${prefix}.recipientFallback`),
+    detailFor: translate(locale, `${prefix}.detailFor`),
+    detailExpires: translate(locale, `${prefix}.detailExpires`),
+    expiresValue: translate(locale, `${prefix}.expiresValue`, { minutes: MAGIC_LINK_TTL }),
+    footerNote: translate(locale, `${prefix}.footerNote`, { minutes: MAGIC_LINK_TTL }),
+    secureLink: translate(locale, `${prefix}.secureLink`),
+    textGreeting: translate(locale, `${prefix}.textGreeting`),
+    textAction: translate(locale, `${prefix}.textAction`),
+    textExpiry: translate(locale, `${prefix}.textExpiry`, { minutes: MAGIC_LINK_TTL }),
+    textIgnore: translate(locale, `${prefix}.textIgnore`),
+  };
+}
+
+function buildEmailShell({ preheader, eyebrow, title, intro, ctaLabel, ctaUrl, detailRows = [], footerNote, secureLinkLabel = 'Secure link', lang = 'en' }) {
   const rowsHtml = detailRows.length > 0
     ? detailRows.map(({ label, value }) => `
           <tr>
@@ -65,7 +88,7 @@ function buildEmailShell({ preheader, eyebrow, title, intro, ctaLabel, ctaUrl, d
     : '';
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(lang)}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -102,7 +125,7 @@ function buildEmailShell({ preheader, eyebrow, title, intro, ctaLabel, ctaUrl, d
                   <tr>
                     <td style="padding:0 0 22px;">
                       <div style="padding:16px 18px;background:#F0EBE2;border:1px solid #DCD5C8;border-radius:12px;">
-                        <div style="font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#9A948E;margin-bottom:6px;">Secure link</div>
+                        <div style="font-family:Inter,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#9A948E;margin-bottom:6px;">${escapeHtml(secureLinkLabel)}</div>
                         <div style="font-family:Inter,Arial,sans-serif;font-size:13px;line-height:1.7;color:#3A72A0;word-break:break-all;">${escapeHtml(ctaUrl)}</div>
                       </div>
                     </td>
@@ -156,43 +179,39 @@ export async function sendEmail({ to, subject, text, html }) {
 }
 
 export async function sendMagicLinkEmail(to, magicLink, options = {}) {
-  const recipientName = options.displayName?.trim() || 'there';
   const isClaimFlow = Boolean(options.claimToken);
-  const subject = isClaimFlow
-    ? '[Kin] Claim your place in the family tree'
-    : '[Kin] Your secure Kin sign-in link';
-  const intro = isClaimFlow
-    ? `A place in the tree is waiting for you. Use this secure link to claim your profile in Kin and step into your shared family history.`
-    : `Use this secure link to sign back in to Kin and continue exploring the people, stories, and branches that connect your family.`;
+  const copy = getMagicLinkCopy(options.locale, isClaimFlow);
+  const recipientName = options.displayName?.trim() || copy.recipientFallback;
   const detailRows = [
-    { label: 'For', value: recipientName },
-    { label: 'Expires', value: `In ${MAGIC_LINK_TTL} minutes` },
+    { label: copy.detailFor, value: recipientName },
+    { label: copy.detailExpires, value: copy.expiresValue },
   ];
-  const footerNote = `If you did not request this link, you can safely ignore this email. The link expires automatically in ${MAGIC_LINK_TTL} minutes.`;
   const html = buildEmailShell({
-    preheader: isClaimFlow ? 'Claim your place in Kin with a secure magic link.' : 'Your Kin magic link is ready.',
-    eyebrow: isClaimFlow ? 'Family Invitation' : 'Secure Sign-In',
-    title: isClaimFlow ? 'Your branch is ready' : 'Your sign-in link is ready',
-    intro,
-    ctaLabel: isClaimFlow ? 'Claim My Place' : 'Open Kin',
+    preheader: copy.preheader,
+    eyebrow: copy.eyebrow,
+    title: copy.title,
+    intro: copy.intro,
+    ctaLabel: copy.ctaLabel,
     ctaUrl: magicLink,
     detailRows,
-    footerNote,
+    footerNote: copy.footerNote,
+    secureLinkLabel: copy.secureLink,
+    lang: normalizeLocale(options.locale),
   });
   const text = [
-    `Hi ${recipientName},`,
+    `${copy.textGreeting} ${recipientName},`,
     '',
-    intro,
+    copy.intro,
     '',
-    `${isClaimFlow ? 'Claim your place' : 'Open Kin'}: ${magicLink}`,
+    `${copy.textAction}: ${magicLink}`,
     '',
-    `This link expires in ${MAGIC_LINK_TTL} minutes.`,
-    'If you did not request it, you can ignore this email.',
+    copy.textExpiry,
+    copy.textIgnore,
   ].join('\n');
 
   return sendEmail({
     to,
-    subject,
+    subject: copy.subject,
     text,
     html,
   });

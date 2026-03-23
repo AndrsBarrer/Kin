@@ -6,7 +6,7 @@ import LanguageToggle from './LanguageToggle';
 import { useTree } from '../context/TreeContext';
 
 export default function TreeAccessPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { treeId } = useParams();
   const { currentUser, isAuthenticated, refreshSession, setActiveTreeId } = useTree();
@@ -69,6 +69,7 @@ export default function TreeAccessPage() {
       await auth.sendMagicLink({
         email: magicForm.email.trim(),
         treeId,
+        locale: i18n.language?.slice(0, 2) === 'es' ? 'es' : 'en',
       });
       setMagicSent(true);
     } catch (sendError) {
