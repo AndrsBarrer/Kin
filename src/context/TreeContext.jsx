@@ -14,6 +14,7 @@ export function useTree() {
   return ctx;
 }
 
+// eslint-disable-next-line react/prop-types
 export function TreeProvider({ children }) {
   const location = useLocation();
   const [treeList, setTreeList] = useState([]);
@@ -25,24 +26,6 @@ export function TreeProvider({ children }) {
 
   const currentUserId = currentUser?.id || null;
 
-  function syncActiveTree(list) {
-    setTreeList(list);
-    if (list.length === 0) {
-      setActiveTreeId(null);
-      return;
-    }
-
-    const matchingTree = list.find((tree) => normalizeTreeId(tree.id) === activeTreeId);
-    const nextActiveTreeId = matchingTree
-      ? normalizeTreeId(matchingTree.id)
-      : normalizeTreeId(list[0].id);
-
-    if (nextActiveTreeId !== activeTreeId) {
-      setActiveTreeId(nextActiveTreeId);
-      console.log('[Kin] Auto-selected first available tree:', nextActiveTreeId);
-    }
-  }
-
   const setActiveTreeId = useCallback((id) => {
     const nextId = normalizeTreeId(id);
     setActiveTreeIdState(nextId);
@@ -50,11 +33,34 @@ export function TreeProvider({ children }) {
     else localStorage.removeItem('kin_active_tree');
   }, []);
 
+  const syncActiveTree = useCallback((list) => {
+    setTreeList(list);
+    if (list.length === 0) {
+      setActiveTreeId(null);
+      return;
+    }
+
+    setActiveTreeIdState((currentActiveTreeId) => {
+      const matchingTree = list.find((tree) => normalizeTreeId(tree.id) === currentActiveTreeId);
+      const nextActiveTreeId = matchingTree
+        ? normalizeTreeId(matchingTree.id)
+        : normalizeTreeId(list[0].id);
+
+      if (nextActiveTreeId !== currentActiveTreeId) {
+        if (nextActiveTreeId) localStorage.setItem('kin_active_tree', nextActiveTreeId);
+        else localStorage.removeItem('kin_active_tree');
+        console.log('[Kin] Auto-selected first available tree:', nextActiveTreeId);
+      }
+
+      return nextActiveTreeId;
+    });
+  }, [setActiveTreeId]);
+
   const loadTrees = useCallback(async () => {
     const list = await treesApi.list();
     syncActiveTree(list);
     return list;
-  }, [activeTreeId, setActiveTreeId]);
+  }, [syncActiveTree]);
 
   const refreshSession = useCallback(async (options = {}) => {
     const { syncTrees = true } = options;
@@ -80,9 +86,7 @@ export function TreeProvider({ children }) {
   }, [loadTrees, setActiveTreeId]);
 
   const logout = useCallback(async () => {
-    try {
-      await auth.logout();
-    } catch (_) {}
+    await auth.logout().catch(() => null);
 
     setToken(null);
     setCurrentUser(null);

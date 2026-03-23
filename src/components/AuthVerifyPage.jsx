@@ -18,6 +18,8 @@ export default function AuthVerifyPage() {
   const treeId = searchParams.get('treeId');
 
   useEffect(() => {
+    let redirectTimeoutId = null;
+
     if (!token) {
       setStatus('error');
       setMessage(t('authVerify.missingToken'));
@@ -47,7 +49,7 @@ export default function AuthVerifyPage() {
         }
 
         setStatus('done');
-        setTimeout(() => {
+        redirectTimeoutId = window.setTimeout(() => {
           if (!cancelled) navigate(treeId ? `/tree/${treeId}` : '/', { replace: true });
         }, 900);
       } catch (err) {
@@ -58,7 +60,12 @@ export default function AuthVerifyPage() {
     }
 
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (redirectTimeoutId !== null) {
+        window.clearTimeout(redirectTimeoutId);
+      }
+    };
   }, [inviteToken, navigate, refreshSession, t, token, treeId]);
 
   const body = status === 'verifying'

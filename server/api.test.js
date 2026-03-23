@@ -271,6 +271,46 @@ test('existing accounts can request a magic-link sign-in by email only, while ne
   assert.equal(normalizedLegacy.email, 'legacyuser@example.com');
 });
 
+test('existing users can sign in again with email only', async () => {
+  const firstSession = await createMagicSession('returning@example.com', 'Returning Member');
+
+  const logout = await apiRequest('/api/auth/logout', {
+    method: 'POST',
+    token: firstSession.token,
+  });
+  assert.equal(logout.status, 200);
+
+  const magicLinkRequest = await apiRequest('/api/auth/magic-link', {
+    method: 'POST',
+    body: {
+      email: 'returning@example.com',
+    },
+  });
+  assert.equal(magicLinkRequest.status, 200);
+
+  const tokenRow = getRow(
+    `SELECT m.token
+     FROM magic_link_tokens m
+     JOIN users u ON u.id = m.user_id
+     WHERE lower(trim(u.email)) = ?
+     ORDER BY m.created_at DESC
+     LIMIT 1`,
+    ['returning@example.com']
+  );
+  assert.ok(tokenRow?.token);
+
+  const verifyResponse = await apiRequest('/api/auth/verify', {
+    method: 'POST',
+    body: { token: tokenRow.token },
+  });
+  assert.equal(verifyResponse.status, 200);
+  assert.equal(verifyResponse.body.user.email, 'returning@example.com');
+
+  const me = await apiRequest('/api/auth/me', { token: verifyResponse.body.token });
+  assert.equal(me.status, 200);
+  assert.equal(me.body.email, 'returning@example.com');
+});
+
 test('profile updates persist owner-editable profile fields and allow clearing optional values', async () => {
   const admin = await bootstrap();
 
