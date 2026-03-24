@@ -201,6 +201,7 @@ function App() {
   const authOverlayWasVisibleRef = useRef(false);
   const tutorialPromptedUserRef = useRef(null);
   const idleTimeoutRef = useRef(null);
+  const createPersonInFlightRef = useRef(false);
 
   const proposalStatus = searchParams.get('proposal');
   const requestedProfileId = searchParams.get('profile');
@@ -538,6 +539,10 @@ function App() {
   }, [is3DAvailable]);
 
   const handleSavePerson = useCallback(async (data) => {
+    if (createPersonInFlightRef.current) {
+      return false;
+    }
+
     if (!resolvedActiveTreeId) {
       toast(t('app.noActiveTree'), 'error');
       return false;
@@ -555,6 +560,7 @@ function App() {
     }
 
     try {
+      createPersonInFlightRef.current = true;
       const { profile, relationships: createdRels } = await peopleApi.createPerson(resolvedActiveTreeId, data);
 
       console.log('[Kin] Person created in DB:', profile.id, profile.first_name, profile.last_name);
@@ -582,6 +588,8 @@ function App() {
       const message = getRelationshipErrorMessage(t, err.code, 'app.failedAddPerson');
       toast(message || err.message || t('app.failedAddPerson'), 'error');
       return false;
+    } finally {
+      createPersonInFlightRef.current = false;
     }
   }, [focusedId, people, resolvedActiveTreeId, t]);
 

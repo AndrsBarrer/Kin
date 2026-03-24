@@ -396,6 +396,52 @@ test('profile updates persist owner-editable profile fields and allow clearing o
   assert.equal(JSON.parse(storedProfile.metadata).branch, 'family');
 });
 
+test('profile creation rejects rapid duplicate submissions for the same payload', async () => {
+  const admin = await bootstrap();
+  const payload = {
+    treeId: admin.treeId,
+    firstName: 'Jesus',
+    lastName: 'Rodriguez',
+    maidenName: '',
+    isLiving: true,
+    skipDuplicateCheck: true,
+    metadata: {
+      branch: 'paternal',
+      gender: 'M',
+      birth: 1980,
+      death: null,
+      bio: 'Added once',
+    },
+  };
+
+  const firstCreate = await apiRequest('/api/profiles', {
+    method: 'POST',
+    token: admin.token,
+    body: payload,
+  });
+  assert.equal(firstCreate.status, 201);
+
+  const secondCreate = await apiRequest('/api/profiles', {
+    method: 'POST',
+    token: admin.token,
+    body: payload,
+  });
+  assert.equal(secondCreate.status, 409);
+  assert.equal(secondCreate.body.code, 'duplicate_profile_submission');
+  assert.equal(secondCreate.body.profileId, firstCreate.body.id);
+
+  const duplicateCount = getRow(
+    `SELECT COUNT(*) AS count
+     FROM profiles
+     WHERE tree_id = ?
+       AND first_name = ?
+       AND last_name = ?
+       AND deleted_at IS NULL`,
+    [admin.treeId, 'Jesus', 'Rodriguez']
+  );
+  assert.equal(duplicateCount.count, 1);
+});
+
 test('profiles and join endpoints cover creation, invite verification, claim, and deletion flows', async () => {
   const admin = await bootstrap();
 

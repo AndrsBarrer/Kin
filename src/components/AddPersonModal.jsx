@@ -31,6 +31,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   );
   const [mobileViewportHeight, setMobileViewportHeight] = useState(null);
   const dupeTimer = useRef(null);
+  const saveInFlightRef = useRef(false);
   const modalRef = useRef(null);
   const canSubmit = isEditMode || (Boolean(activeTreeId) && !treeLoading);
   const selectablePeople = people.filter((person) => person.id !== currentProfileId);
@@ -197,6 +198,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   };
 
   const handleSave = async () => {
+    if (saveInFlightRef.current) return;
     if (!canSubmit) {
       alert(treeLoading ? t('common.loadingFamilyTree') : t('app.noActiveTree'));
       return;
@@ -206,6 +208,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
       alert(t('addPersonModal.parentsMustBeDifferent'));
       return;
     }
+    saveInFlightRef.current = true;
     setSaving(true);
     try {
       const saved = await onSave({
@@ -224,6 +227,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
         onClose();
       }
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   };

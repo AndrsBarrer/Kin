@@ -8,6 +8,8 @@ import { findDuplicates, nameScore } from '../services/duplicates.js';
 import { logAction } from '../services/audit.js';
 
 const router = Router();
+const PROFILE_CREATE_DEDUPE_WINDOW_MS = 5000;
+const recentProfileCreateSubmissions = new Map();
 
 function normalizeNameParts(value) {
   return String(value || '')
@@ -34,6 +36,37 @@ function profileNameMatchesUser(userDisplayName, profile) {
   if (firstNameScore >= 88 && !lastPart) return true;
   if (firstNameScore >= 82 && lastNameScore >= 55) return true;
   return false;
+}
+
+function normalizeSubmissionValue(value) {
+  if (value == null) return null;
+  return String(value).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function buildProfileCreateSubmissionKey(userId, body) {
+  const metadata = body?.metadata || {};
+
+  return JSON.stringify({
+    userId,
+    treeId: body?.treeId || null,
+    firstName: normalizeSubmissionValue(body?.firstName),
+    lastName: normalizeSubmissionValue(body?.lastName),
+    maidenName: normalizeSubmissionValue(body?.maidenName),
+    isLiving: body?.isLiving ?? true,
+    branch: normalizeSubmissionValue(metadata.branch),
+    gender: normalizeSubmissionValue(metadata.gender),
+    birth: metadata.birth ?? null,
+    death: metadata.death ?? null,
+    bio: normalizeSubmissionValue(metadata.bio),
+  });
+}
+
+function pruneExpiredProfileCreateSubmissions(now) {
+  for (const [key, entry] of recentProfileCreateSubmissions.entries()) {
+    if ((now - entry.timestamp) > PROFILE_CREATE_DEDUPE_WINDOW_MS) {
+      recentProfileCreateSubmissions.delete(key);
+    }
+  }
 }
 
 async function getProfileMedia(profileId) {
@@ -231,15 +264,32 @@ router.get('/:id', async (req, res, next) => {
  * Create a new profile in a tree.
  */
 router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
+  const now = Date.now();
+  pruneExpiredProfileCreateSubmissions(now);
+
+  const submissionKey = buildProfileCreateSubmissionKey(req.user.id, req.body);
+  const existingSubmission = recentProfileCreateSubmissions.get(submissionKey);
+  if (existingSubmission) {
+    return res.status(409).json({
+      error: 'Duplicate profile submission detected. Please wait before trying again.',
+      code: 'duplicate_profile_submission',
+      profileId: existingSubmission.profileId || null,
+    });
+  }
+
+  recentProfileCreateSubmissions.set(submissionKey, { timestamp: now, profileId: null });
+
   try {
     const { treeId, firstName, lastName, maidenName, isLiving, metadata } = req.body;
     if (!firstName || !lastName) {
+      recentProfileCreateSubmissions.delete(submissionKey);
       return res.status(400).json({ error: 'firstName and lastName are required' });
     }
 
     // Check for duplicates
     const dupes = await findDuplicates(treeId, firstName, lastName);
     if (dupes.length > 0 && !req.body.skipDuplicateCheck) {
+      recentProfileCreateSubmissions.delete(submissionKey);
       return res.status(409).json({
         warning: 'Potential duplicates found',
         duplicates: dupes,
@@ -283,11 +333,14 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
     logAction(req.user.id, 'profile.create', 'profile', profile.id, null, { firstName, lastName });
     console.log(`[Kin] Profile created: ${firstName} ${lastName} (${profile.id}) — invite token generated`);
 
+    recentProfileCreateSubmissions.set(submissionKey, { timestamp: Date.now(), profileId: profile.id });
+
     const allFacts = await aggregateFacts(profile.id);
     const visibleFacts = applyPrivacy(req, profile, allFacts);
 
     res.status(201).json({ ...profile, facts: visibleFacts });
   } catch (err) {
+    recentProfileCreateSubmissions.delete(submissionKey);
     next(err);
   }
 });
