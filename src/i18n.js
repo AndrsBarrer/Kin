@@ -86,6 +86,7 @@ const resources = {
         duplicateTitle: 'Possible duplicates found:',
         duplicateMatch: '{{score}}% match',
         firstNameRequired: 'First and last name required.',
+        parentsMustBeDifferent: 'Choose two different parents.',
         placeholders: {
           firstName: 'Maria',
           lastName: 'Garcia',
@@ -216,6 +217,18 @@ const resources = {
         unlocked: 'Unlocked',
         removeConnection: 'Remove connection',
         unknownAuthor: 'Unknown',
+      },
+      relationshipErrors: {
+        unsupportedRelationshipType: 'That relationship type is not supported.',
+        selfRelationship: 'A relationship requires two different people.',
+        existingParentChild: 'This parent and child are already connected.',
+        ancestorAlreadyExists: 'This person is already an ancestor of that child.',
+        ancestryCycle: 'This relationship would create an ancestry cycle.',
+        siblingsCannotBeParentChild: 'Siblings cannot be assigned as parent and child.',
+        tooManyParents: 'A person can only have two parents in Kin.',
+        existingMarriage: 'One of these people is already linked to a spouse or partner.',
+        siblingsCannotMarry: 'Siblings cannot be linked as spouses or partners.',
+        ancestorDescendantCannotMarry: 'Ancestors and descendants cannot be linked as spouses or partners.',
       },
       joinPage: {
         verifyingInvite: 'Verifying invite...',
@@ -475,6 +488,7 @@ const resources = {
         duplicateTitle: 'Posibles duplicados encontrados:',
         duplicateMatch: '{{score}}% de coincidencia',
         firstNameRequired: 'Se requieren nombre y apellido.',
+        parentsMustBeDifferent: 'Elige dos progenitores diferentes.',
         placeholders: {
           firstName: 'Maria',
           lastName: 'Garcia',
@@ -605,6 +619,18 @@ const resources = {
         unlocked: 'Desbloqueado',
         removeConnection: 'Eliminar conexion',
         unknownAuthor: 'Desconocido',
+      },
+      relationshipErrors: {
+        unsupportedRelationshipType: 'Ese tipo de relacion no es compatible.',
+        selfRelationship: 'Una relacion requiere dos personas diferentes.',
+        existingParentChild: 'Ese progenitor y ese hijo ya estan conectados.',
+        ancestorAlreadyExists: 'Esta persona ya es ancestro de ese hijo.',
+        ancestryCycle: 'Esta relacion crearia un ciclo de ancestros.',
+        siblingsCannotBeParentChild: 'No se puede asignar una relacion de progenitor e hijo entre hermanos.',
+        tooManyParents: 'Una persona solo puede tener dos progenitores en Kin.',
+        existingMarriage: 'Una de estas personas ya esta vinculada a un esposo, esposa o pareja.',
+        siblingsCannotMarry: 'No se puede vincular a hermanos como esposos o pareja.',
+        ancestorDescendantCannotMarry: 'No se puede vincular a ancestros y descendientes como esposos o pareja.',
       },
       joinPage: {
         verifyingInvite: 'Verificando invitacion...',

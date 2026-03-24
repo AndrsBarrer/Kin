@@ -19,17 +19,32 @@ export const initialPeople = [];
 export const initialRels = [];
 
 export function getRels(id, rels) {
-  const r = [];
-  rels.forEach(x => {
-    if (x.type === 'marriage') {
-      if (x.a === id) r.push({ id: x.b, label: 'Spouse', type: 'marriage' });
-      if (x.b === id) r.push({ id: x.a, label: 'Spouse', type: 'marriage' });
-    } else {
-      if (x.a === id) r.push({ id: x.b, label: 'Child', type: 'child' });
-      if (x.b === id) r.push({ id: x.a, label: 'Parent', type: 'parent' });
+  const relations = [];
+  const siblingIds = new Set();
+  const parentIds = rels
+    .filter((rel) => rel.type === 'parent' && rel.b === id)
+    .map((rel) => rel.a);
+
+  rels.forEach((rel) => {
+    if (rel.type === 'marriage') {
+      if (rel.a === id) relations.push({ id: rel.b, label: 'Spouse', type: 'marriage' });
+      if (rel.b === id) relations.push({ id: rel.a, label: 'Spouse', type: 'marriage' });
+      return;
     }
+
+    if (rel.a === id) relations.push({ id: rel.b, label: 'Child', type: 'child' });
+    if (rel.b === id) relations.push({ id: rel.a, label: 'Parent', type: 'parent' });
   });
-  return r;
+
+  parentIds.forEach((parentId) => {
+    rels.forEach((rel) => {
+      if (rel.type !== 'parent' || rel.a !== parentId || rel.b === id || siblingIds.has(rel.b)) return;
+      siblingIds.add(rel.b);
+      relations.push({ id: rel.b, label: 'Sibling', type: 'sibling' });
+    });
+  });
+
+  return relations;
 }
 
 export function bfs(s, e, rels) {

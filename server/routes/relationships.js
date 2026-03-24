@@ -4,6 +4,58 @@ import { requireAuth, requireTreeMember, getTreeRole } from '../middleware/auth.
 import { logAction } from '../services/audit.js';
 
 const router = Router();
+const SUPPORTED_RELATIONSHIP_TYPES = new Set(['parent_child', 'marriage']);
+
+async function hasParentChildPath(treeId, ancestorId, descendantId) {
+  const { rows } = await pool.query(
+    `WITH RECURSIVE descendants(id) AS (
+       SELECT profile_b
+       FROM relationships
+       WHERE tree_id = $1
+         AND type = 'parent_child'
+         AND profile_a = $2
+         AND deleted_at IS NULL
+       UNION
+       SELECT r.profile_b
+       FROM relationships r
+       JOIN descendants d ON r.profile_a = d.id
+       WHERE r.tree_id = $1
+         AND r.type = 'parent_child'
+         AND r.deleted_at IS NULL
+     )
+     SELECT 1 AS found
+     FROM descendants
+     WHERE id = $3
+     LIMIT 1`,
+    [treeId, ancestorId, descendantId]
+  );
+
+  return rows.length > 0;
+}
+
+async function sharesParent(treeId, profileA, profileB) {
+  const { rows } = await pool.query(
+    `SELECT 1 AS found
+     FROM relationships r1
+     JOIN relationships r2 ON r1.profile_a = r2.profile_a
+     WHERE r1.tree_id = $1
+       AND r2.tree_id = $1
+       AND r1.type = 'parent_child'
+       AND r2.type = 'parent_child'
+       AND r1.deleted_at IS NULL
+       AND r2.deleted_at IS NULL
+       AND r1.profile_b = $2
+       AND r2.profile_b = $3
+     LIMIT 1`,
+    [treeId, profileA, profileB]
+  );
+
+  return rows.length > 0;
+}
+
+function relationshipError(res, status, code, error) {
+  return res.status(status).json({ code, error });
+}
 
 /**
  * GET /api/relationships?treeId=...
@@ -22,6 +74,7 @@ router.get('/', async (req, res, next) => {
        JOIN profiles pa ON pa.id = r.profile_a
        JOIN profiles pb ON pb.id = r.profile_b
        WHERE r.tree_id = $1 AND r.deleted_at IS NULL
+         AND r.type IN ('parent_child', 'marriage')
        ORDER BY r.created_at`,
       [treeId]
     );
@@ -39,13 +92,68 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
   try {
     const { treeId, type, profileA, profileB, roleA, roleB, startYear, endYear } = req.body;
     if (!type || !profileA || !profileB) {
-      return res.status(400).json({ error: 'type, profileA, and profileB are required' });
+      return relationshipError(res, 400, 'unsupported_relationship_type', 'type, profileA, and profileB are required');
+    }
+    if (!SUPPORTED_RELATIONSHIP_TYPES.has(type)) {
+      return relationshipError(res, 400, 'unsupported_relationship_type', 'Only parent/child and spouse/partner relationships are supported');
     }
     if (profileA === profileB) {
-      return res.status(400).json({ error: 'A relationship requires two different people' });
+      return relationshipError(res, 400, 'self_relationship', 'A relationship requires two different people');
+    }
+
+    if (type === 'parent_child') {
+      const { rows: directExisting } = await pool.query(
+        `SELECT id
+         FROM relationships
+         WHERE tree_id = $1
+           AND type = 'parent_child'
+           AND profile_a = $2
+           AND profile_b = $3
+           AND deleted_at IS NULL
+         LIMIT 1`,
+        [treeId, profileA, profileB]
+      );
+
+      if (directExisting.length > 0) {
+        return relationshipError(res, 409, 'existing_parent_child', 'This parent/child relationship already exists');
+      }
+
+      if (await hasParentChildPath(treeId, profileA, profileB)) {
+        return relationshipError(res, 409, 'ancestor_already_exists', 'This person is already an ancestor of that child');
+      }
+
+      if (await hasParentChildPath(treeId, profileB, profileA)) {
+        return relationshipError(res, 409, 'ancestry_cycle', 'This relationship would create an ancestry cycle');
+      }
+
+      if (await sharesParent(treeId, profileA, profileB)) {
+        return relationshipError(res, 409, 'siblings_cannot_be_parent_child', 'Siblings cannot be assigned as parent and child');
+      }
+
+      const { rows: currentParents } = await pool.query(
+        `SELECT id
+         FROM relationships
+         WHERE tree_id = $1
+           AND type = 'parent_child'
+           AND profile_b = $2
+           AND deleted_at IS NULL`,
+        [treeId, profileB]
+      );
+
+      if (currentParents.length >= 2) {
+        return relationshipError(res, 409, 'too_many_parents', 'A person can only have two parents in Kin');
+      }
     }
 
     if (type === 'marriage') {
+      if (await sharesParent(treeId, profileA, profileB)) {
+        return relationshipError(res, 409, 'siblings_cannot_marry', 'Siblings cannot be linked as spouses or partners');
+      }
+
+      if (await hasParentChildPath(treeId, profileA, profileB) || await hasParentChildPath(treeId, profileB, profileA)) {
+        return relationshipError(res, 409, 'ancestor_descendant_cannot_marry', 'Ancestors and descendants cannot be linked as spouses or partners');
+      }
+
       const { rows: existingMarriages } = await pool.query(
         `SELECT id, profile_a, profile_b
          FROM relationships
@@ -57,7 +165,7 @@ router.post('/', requireAuth, requireTreeMember, async (req, res, next) => {
       );
 
       if (existingMarriages.length > 0) {
-        return res.status(409).json({ error: 'One of these people is already linked to a spouse or partner' });
+        return relationshipError(res, 409, 'existing_marriage', 'One of these people is already linked to a spouse or partner');
       }
     }
 

@@ -330,12 +330,12 @@ test('profile updates persist owner-editable profile fields and allow clearing o
     method: 'PUT',
     token: admin.token,
     body: {
-      firstName: 'Elena',
+      firstName: 'Helena',
       lastName: 'Santos',
       maidenName: null,
       isLiving: false,
       metadata: {
-        branch: 'maternal',
+        branch: 'family',
         gender: 'O',
         birth: 1984,
         death: 2024,
@@ -345,10 +345,11 @@ test('profile updates persist owner-editable profile fields and allow clearing o
   });
 
   assert.equal(updated.status, 200);
+  assert.equal(updated.body.first_name, 'Helena');
   assert.equal(updated.body.last_name, 'Santos');
   assert.equal(updated.body.maiden_name, null);
   assert.equal(updated.body.is_living, 0);
-  assert.equal(updated.body.metadata.branch, 'maternal');
+  assert.equal(updated.body.metadata.branch, 'family');
   assert.equal(updated.body.facts.gender[0].value, 'O');
   assert.equal(updated.body.facts.birth_year[0].value, '1984');
   assert.equal(updated.body.facts.death_year[0].value, '2024');
@@ -358,12 +359,12 @@ test('profile updates persist owner-editable profile fields and allow clearing o
     method: 'PUT',
     token: admin.token,
     body: {
-      firstName: 'Elena',
+      firstName: 'Helena',
       lastName: 'Santos',
       maidenName: null,
       isLiving: true,
       metadata: {
-        branch: 'maternal',
+        branch: 'family',
         gender: 'O',
         birth: 1984,
         death: null,
@@ -373,11 +374,26 @@ test('profile updates persist owner-editable profile fields and allow clearing o
   });
 
   assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.first_name, 'Helena');
+  assert.equal(cleared.body.last_name, 'Santos');
   assert.equal(cleared.body.is_living, 1);
+  assert.equal(cleared.body.metadata.branch, 'family');
   assert.equal(cleared.body.facts.gender[0].value, 'O');
   assert.equal(cleared.body.facts.birth_year[0].value, '1984');
   assert.equal(cleared.body.facts.death_year, undefined);
   assert.equal(cleared.body.facts.biography, undefined);
+
+  const storedProfile = getRow(
+    `SELECT first_name, last_name, maiden_name, is_living, metadata
+     FROM profiles
+     WHERE id = ?`,
+    [profile.id]
+  );
+  assert.equal(storedProfile.first_name, 'Helena');
+  assert.equal(storedProfile.last_name, 'Santos');
+  assert.equal(storedProfile.maiden_name, null);
+  assert.equal(storedProfile.is_living, 1);
+  assert.equal(JSON.parse(storedProfile.metadata).branch, 'family');
 });
 
 test('profiles and join endpoints cover creation, invite verification, claim, and deletion flows', async () => {
@@ -461,7 +477,7 @@ test('profiles and join endpoints cover creation, invite verification, claim, an
   const updatedProfile = await apiRequest(`/api/profiles/${secondProfile.id}`, {
     method: 'PUT',
     token: admin.token,
-    body: { maidenName: 'Stone', metadata: { branch: 'sibling' } },
+    body: { maidenName: 'Stone', metadata: { branch: 'family' } },
   });
   assert.equal(updatedProfile.status, 200);
   assert.equal(updatedProfile.body.maiden_name, 'Stone');
@@ -691,7 +707,7 @@ test('signed-in tree members can claim an unclaimed profile after confirming the
   assert.equal(claimedProfile?.claimed_by, member.user.id);
 });
 
-test('relationships and graph endpoints cover create, list, traverse, and delete flows', async () => {
+test('relationships and graph endpoints only support parent-child and marriage relationships', async () => {
   const admin = await bootstrap();
   const parent = await createProfile(admin.token, admin.treeId, {
     firstName: 'Parent',
@@ -701,8 +717,24 @@ test('relationships and graph endpoints cover create, list, traverse, and delete
     firstName: 'Child',
     lastName: 'Tester',
   });
+  const siblingChild = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Sibling Child',
+    lastName: 'Tester',
+  });
+  const spouse = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Spouse',
+    lastName: 'Tester',
+  });
+  const extraParent = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Extra Parent',
+    lastName: 'Tester',
+  });
+  const grandchild = await createProfile(admin.token, admin.treeId, {
+    firstName: 'Grandchild',
+    lastName: 'Tester',
+  });
 
-  const createRelationship = await apiRequest('/api/relationships', {
+  const parentRelationship = await apiRequest('/api/relationships', {
     method: 'POST',
     token: admin.token,
     body: {
@@ -715,23 +747,233 @@ test('relationships and graph endpoints cover create, list, traverse, and delete
       startYear: 2008,
     },
   });
-  assert.equal(createRelationship.status, 201);
+  assert.equal(parentRelationship.status, 201);
+
+  const siblingParentRelationship = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: parent.id,
+      profileB: siblingChild.id,
+    },
+  });
+  assert.equal(siblingParentRelationship.status, 201);
+
+  const grandchildRelationship = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: child.id,
+      profileB: grandchild.id,
+    },
+  });
+  assert.equal(grandchildRelationship.status, 201);
+
+  const secondParentRelationship = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: spouse.id,
+      profileB: child.id,
+    },
+  });
+  assert.equal(secondParentRelationship.status, 201);
+
+  const marriageRelationship = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'marriage',
+      profileA: parent.id,
+      profileB: spouse.id,
+      startYear: 2010,
+    },
+  });
+  assert.equal(marriageRelationship.status, 201);
+
+  const unsupportedSibling = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'sibling',
+      profileA: child.id,
+      profileB: spouse.id,
+    },
+  });
+  assert.equal(unsupportedSibling.status, 400);
+  assert.equal(unsupportedSibling.body.code, 'unsupported_relationship_type');
+  assert.equal(unsupportedSibling.body.error, 'Only parent/child and spouse/partner relationships are supported');
+
+  const duplicateParentRelationship = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: parent.id,
+      profileB: child.id,
+    },
+  });
+  assert.equal(duplicateParentRelationship.status, 409);
+  assert.equal(duplicateParentRelationship.body.code, 'existing_parent_child');
+
+  const siblingAsParent = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: siblingChild.id,
+      profileB: child.id,
+    },
+  });
+  assert.equal(siblingAsParent.status, 409);
+  assert.equal(siblingAsParent.body.code, 'siblings_cannot_be_parent_child');
+  assert.equal(siblingAsParent.body.error, 'Siblings cannot be assigned as parent and child');
+
+  const thirdParent = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: extraParent.id,
+      profileB: child.id,
+    },
+  });
+  assert.equal(thirdParent.status, 409);
+  assert.equal(thirdParent.body.code, 'too_many_parents');
+
+  const ancestorAsDirectParent = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: parent.id,
+      profileB: grandchild.id,
+    },
+  });
+  assert.equal(ancestorAsDirectParent.status, 409);
+  assert.equal(ancestorAsDirectParent.body.code, 'ancestor_already_exists');
+  assert.equal(ancestorAsDirectParent.body.error, 'This person is already an ancestor of that child');
+
+  const ancestryCycle = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'parent_child',
+      profileA: grandchild.id,
+      profileB: parent.id,
+    },
+  });
+  assert.equal(ancestryCycle.status, 409);
+  assert.equal(ancestryCycle.body.code, 'ancestry_cycle');
+  assert.equal(ancestryCycle.body.error, 'This relationship would create an ancestry cycle');
+
+  const siblingMarriage = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'marriage',
+      profileA: child.id,
+      profileB: siblingChild.id,
+    },
+  });
+  assert.equal(siblingMarriage.status, 409);
+  assert.equal(siblingMarriage.body.code, 'siblings_cannot_marry');
+
+  const ancestorMarriage = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'marriage',
+      profileA: parent.id,
+      profileB: grandchild.id,
+    },
+  });
+  assert.equal(ancestorMarriage.status, 409);
+  assert.equal(ancestorMarriage.body.code, 'ancestor_descendant_cannot_marry');
+
+  const secondMarriage = await apiRequest('/api/relationships', {
+    method: 'POST',
+    token: admin.token,
+    body: {
+      treeId: admin.treeId,
+      type: 'marriage',
+      profileA: parent.id,
+      profileB: extraParent.id,
+    },
+  });
+  assert.equal(secondMarriage.status, 409);
+  assert.equal(secondMarriage.body.code, 'existing_marriage');
 
   const relationships = await apiRequest(`/api/relationships?treeId=${admin.treeId}`);
   assert.equal(relationships.status, 200);
-  assert.equal(relationships.body.length, 1);
+  assert.equal(relationships.body.length, 5);
+  assert.deepEqual(
+    new Set(relationships.body.map((relationship) => relationship.type)),
+    new Set(['parent_child', 'marriage'])
+  );
 
   const neighborhood = await apiRequest(`/api/graph/neighborhood?profileId=${parent.id}&depth=2`);
   assert.equal(neighborhood.status, 200);
   assert.ok(neighborhood.body.profiles.some((profile) => profile.id === child.id));
-  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === createRelationship.body.id));
+  assert.ok(neighborhood.body.profiles.some((profile) => profile.id === siblingChild.id));
+  assert.ok(neighborhood.body.profiles.some((profile) => profile.id === spouse.id));
+  assert.ok(neighborhood.body.profiles.some((profile) => profile.id === grandchild.id));
+  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === parentRelationship.body.id));
+  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === siblingParentRelationship.body.id));
+  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === marriageRelationship.body.id));
+  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === grandchildRelationship.body.id));
+  assert.ok(neighborhood.body.relationships.some((relationship) => relationship.id === secondParentRelationship.body.id));
+  assert.ok(!neighborhood.body.relationships.some((relationship) => relationship.type === 'sibling'));
 
-  const deleteRelationship = await apiRequest(`/api/relationships/${createRelationship.body.id}`, {
+  const deleteMarriage = await apiRequest(`/api/relationships/${marriageRelationship.body.id}`, {
     method: 'DELETE',
     token: admin.token,
   });
-  assert.equal(deleteRelationship.status, 200);
-  assert.equal(deleteRelationship.body.message, 'Relationship deleted');
+  assert.equal(deleteMarriage.status, 200);
+  assert.equal(deleteMarriage.body.message, 'Relationship deleted');
+
+  const deleteParentChild = await apiRequest(`/api/relationships/${parentRelationship.body.id}`, {
+    method: 'DELETE',
+    token: admin.token,
+  });
+  assert.equal(deleteParentChild.status, 200);
+  assert.equal(deleteParentChild.body.message, 'Relationship deleted');
+
+  const deleteSiblingParent = await apiRequest(`/api/relationships/${siblingParentRelationship.body.id}`, {
+    method: 'DELETE',
+    token: admin.token,
+  });
+  assert.equal(deleteSiblingParent.status, 200);
+  assert.equal(deleteSiblingParent.body.message, 'Relationship deleted');
+
+  const deleteGrandchild = await apiRequest(`/api/relationships/${grandchildRelationship.body.id}`, {
+    method: 'DELETE',
+    token: admin.token,
+  });
+  assert.equal(deleteGrandchild.status, 200);
+  assert.equal(deleteGrandchild.body.message, 'Relationship deleted');
+
+  const deleteSecondParent = await apiRequest(`/api/relationships/${secondParentRelationship.body.id}`, {
+    method: 'DELETE',
+    token: admin.token,
+  });
+  assert.equal(deleteSecondParent.status, 200);
+  assert.equal(deleteSecondParent.body.message, 'Relationship deleted');
 });
 
 test('facts and proposals endpoints cover direct edits, owner actions, and proposal resolution', async () => {

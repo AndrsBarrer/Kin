@@ -20,6 +20,7 @@ async function request(path, options = {}) {
     const err = new Error(body.error || `HTTP ${res.status}`);
     err.status = res.status;
     err.body = body;
+    err.code = body.code;
     throw err;
   }
   return res.json();

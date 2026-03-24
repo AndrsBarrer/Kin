@@ -4,6 +4,7 @@ import { BRANCH, getRels } from '../data/familyData';
 import { relationships as relApi, facts as factsApi, profiles as profilesApi, stories as storiesApi, trees as treesApi } from '../api/client';
 import { useTree } from '../context/TreeContext';
 import { toast } from './Toast';
+import { getRelationshipErrorMessage, validateMarriageRelationship, validateParentChildRelationship } from '../utils/relationshipValidation';
 import s from './DetailPanel.module.css';
 
 export default function DetailPanel({
@@ -74,6 +75,7 @@ export default function DetailPanel({
     if (relation.type === 'parent') return t('detailPanel.parentOf', { name: person.firstName });
     if (relation.type === 'child') return t('detailPanel.childOf', { name: person.firstName });
     if (relation.type === 'marriage') return t('detailPanel.spousePartner');
+    if (relation.type === 'sibling') return t('detailPanel.sibling');
     return relation.label;
   };
 
@@ -179,11 +181,20 @@ export default function DetailPanel({
         type = 'marriage';
         profileA = person.id;
         profileB = relTarget;
-      } else if (relType === 'sibling') {
-        type = 'sibling';
-        profileA = person.id;
-        profileB = relTarget;
+      } else {
+        throw new Error('Unsupported relationship type');
       }
+
+      const validationError = type === 'marriage'
+        ? validateMarriageRelationship(rels, profileA, profileB)
+        : validateParentChildRelationship(rels, profileA, profileB);
+
+      if (validationError) {
+        const message = getRelationshipErrorMessage(t, validationError, 'detailPanel.failedConnectionAdd');
+        toast(message || t('detailPanel.failedConnectionAdd'), 'error');
+        return;
+      }
+
       const rel = await relApi.create({ treeId: activeTreeId, type, profileA, profileB });
       onRelationshipAdded?.(rel);
       setAddRelOpen(false);
@@ -191,7 +202,8 @@ export default function DetailPanel({
       toast(t('detailPanel.connectionAdded'), 'info');
     } catch (err) {
       console.error('[Kin] Failed to add relationship:', err);
-      toast(err.message || t('detailPanel.failedConnectionAdd'), 'error');
+      const message = getRelationshipErrorMessage(t, err.code, 'detailPanel.failedConnectionAdd');
+      toast(message || err.message || t('detailPanel.failedConnectionAdd'), 'error');
     } finally {
       setRelSaving(false);
     }
@@ -434,7 +446,6 @@ export default function DetailPanel({
                     <option value="parent">{t('detailPanel.parentOf', { name: person.firstName })}</option>
                     <option value="child">{t('detailPanel.childOf', { name: person.firstName })}</option>
                     <option value="spouse" disabled={personHasSpouse}>{personHasSpouse ? t('detailPanel.spouseAlreadyLinked') : t('detailPanel.spousePartner')}</option>
-                    <option value="sibling">{t('detailPanel.sibling')}</option>
                   </select>
                 </div>
                 <select

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 -- ── Privacy enum ─────────────────────────────────────
 CREATE TYPE privacy_tier AS ENUM ('public', 'family', 'private');
 CREATE TYPE member_role  AS ENUM ('admin', 'steward', 'contributor');
-CREATE TYPE rel_type     AS ENUM ('parent_child', 'marriage', 'sibling');
+CREATE TYPE rel_type     AS ENUM ('parent_child', 'marriage');
 CREATE TYPE proposal_status AS ENUM ('pending', 'accepted', 'rejected', 'expired');
 
 -- ══════════════════════════════════════════════════════

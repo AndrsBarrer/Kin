@@ -8,6 +8,10 @@ const NODE_CENTER_X = 256;
 const NODE_CENTER_Y = 216;
 const NODE_CENTER_ANCHOR_Y = 1 - (NODE_CENTER_Y / NODE_TEXTURE_SIZE);
 const EDGE_NODE_PADDING = 4;
+const LIGHT_SCENE_BACKGROUND = '#F5F1EB';
+const DARK_APP_BACKGROUND = '#181614';
+const DARK_SCENE_BROWN = '#8A7350';
+const DARK_SCENE_MOSS = '#3D7C47';
 
 function getNodeCircleRadius(isSelected, isFocused) {
   return isFocused ? 128 : (isSelected ? 122 : 112);
@@ -50,7 +54,7 @@ function getEdgePoints(personA, personB, selectedId, focusedId, mode) {
   return [start, end];
 }
 
-function makeNodeTex(p, isSelected, isFocused) {
+function makeNodeTex(p, isSelected, isFocused, darkMode) {
   const C = document.createElement('canvas');
   C.width = NODE_TEXTURE_SIZE;
   C.height = NODE_TEXTURE_SIZE;
@@ -59,6 +63,9 @@ function makeNodeTex(p, isSelected, isFocused) {
   const cy = NODE_CENTER_Y;
   const r = getNodeCircleRadius(isSelected, isFocused);
   const col = BRANCH[p.branch]?.hex || '#888';
+  const primaryLabelColor = darkMode ? '#F6F1E8' : '#2D2A26';
+  const secondaryLabelColor = darkMode ? '#D9CDBD' : '#5E5850';
+  const tertiaryLabelColor = darkMode ? '#B7AA99' : '#9A948E';
 
   if (isSelected || isFocused) {
     ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
@@ -89,25 +96,31 @@ function makeNodeTex(p, isSelected, isFocused) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.firstName[0] + p.lastName[0], cx, cy);
 
-  // Name labels — deep charcoal
+  if (darkMode) {
+    ctx.shadowColor = 'rgba(10, 7, 5, 0.45)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 3;
+  }
+
+  // Name labels — charcoal in light mode, warm ivory in dark mode
   ctx.font = '600 34px Inter, sans-serif';
-  ctx.fillStyle = '#2D2A26';
+  ctx.fillStyle = primaryLabelColor;
   ctx.fillText(p.firstName, cx, cy + r + 46);
   ctx.font = '500 28px Inter, sans-serif';
-  ctx.fillStyle = '#5E5850';
+  ctx.fillStyle = secondaryLabelColor;
   ctx.fillText(p.lastName, cx, cy + r + 84);
 
   if (p.birth) {
     ctx.font = '400 24px Inter, sans-serif';
-    ctx.fillStyle = '#9A948E';
+    ctx.fillStyle = tertiaryLabelColor;
     const yr = p.birth + (p.death ? `–${p.death}` : '');
     ctx.fillText(yr, cx, cy + r + 120);
   }
   return C;
 }
 
-function makeSprite(p, isSelected, isFocused) {
-  const tex = new THREE.CanvasTexture(makeNodeTex(p, isSelected, isFocused));
+function makeSprite(p, isSelected, isFocused, darkMode) {
+  const tex = new THREE.CanvasTexture(makeNodeTex(p, isSelected, isFocused, darkMode));
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
@@ -127,8 +140,54 @@ function makeEdgeMat(rel) {
   return new THREE.LineBasicMaterial({ color: 0xC4B9A5, transparent: true, opacity: 0.4 });
 }
 
+function hexToRgb(hex) {
+  const normalized = hex.replace('#', '').trim();
+  const safeHex = normalized.length === 3
+    ? normalized.split('').map((char) => char + char).join('')
+    : normalized;
+
+  const value = Number.parseInt(safeHex, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function mixHexColors(baseHex, targetHex, ratio) {
+  const base = hexToRgb(baseHex);
+  const target = hexToRgb(targetHex);
+  const mix = (start, end) => Math.round(start + ((end - start) * ratio));
+
+  return rgbToHex({
+    r: mix(base.r, target.r),
+    g: mix(base.g, target.g),
+    b: mix(base.b, target.b),
+  });
+}
+
+function getSceneBackgroundColor(darkMode) {
+  if (!darkMode) return LIGHT_SCENE_BACKGROUND;
+
+  // Use a warm walnut/sepia backdrop instead of flat gray so dark mode keeps
+  // the heritage, parchment-adjacent character of the rest of the app.
+  return mixHexColors(
+    mixHexColors(
+      mixHexColors(DARK_APP_BACKGROUND, DARK_SCENE_BROWN, 0.28),
+      LIGHT_SCENE_BACKGROUND,
+      0.12,
+    ),
+    DARK_SCENE_MOSS,
+    0.06,
+  );
+}
+
 const Scene = forwardRef(function Scene({
-  people, rels, selectedId, focusedId, pathMode, graphMode,
+  people, rels, selectedId, focusedId, pathMode, graphMode, darkMode,
   onNodeClick, onPathSelect, tooltipRef
 }, fwdRef) {
   const mountRef = useRef(null);
@@ -137,10 +196,12 @@ const Scene = forwardRef(function Scene({
   // Initialize Three.js scene — runs once
   useEffect(() => {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xF5F1EB);
-    scene.fog = new THREE.Fog(0xF5F1EB, 800, 1600);
+    const backgroundColor = getSceneBackgroundColor(darkMode);
+    scene.background = new THREE.Color(backgroundColor);
+    scene.fog = new THREE.Fog(backgroundColor, 800, 1600);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setClearColor(backgroundColor, 1);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
     renderer.shadowMap.enabled = false;
@@ -450,6 +511,15 @@ const Scene = forwardRef(function Scene({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const st = internals.current;
+    if (!st) return;
+    const backgroundColor = getSceneBackgroundColor(darkMode);
+    st.scene.background = new THREE.Color(backgroundColor);
+    st.scene.fog = new THREE.Fog(backgroundColor, 800, 1600);
+    st.renderer.setClearColor(backgroundColor, 1);
+  }, [darkMode]);
+
   // Rebuild graph whenever people/rels change
   useEffect(() => {
     const st = internals.current;
@@ -480,7 +550,7 @@ const Scene = forwardRef(function Scene({
     people.forEach(p => {
       const isSel = p.id === selectedId;
       const isFoc = p.id === focusedId;
-      const sp = makeSprite(p, isSel, isFoc);
+      const sp = makeSprite(p, isSel, isFoc, darkMode);
       sp.position.copy(p._p);
       scene.add(sp);
       nodeMap[p.id] = { sp, p };
@@ -502,7 +572,7 @@ const Scene = forwardRef(function Scene({
 
     st.people = people;
     st.rels = rels;
-  }, [people, rels, selectedId, focusedId, graphMode]);
+  }, [people, rels, selectedId, focusedId, graphMode, darkMode]);
 
   // Update callbacks & state refs
   useEffect(() => {
@@ -574,7 +644,7 @@ const Scene = forwardRef(function Scene({
         if (!entry) return;
         sc.remove(entry.sp);
         const p = entry.p;
-        const sp = makeSprite(p, p.id === st.selectedId, p.id === st.focusedId);
+        const sp = makeSprite(p, p.id === st.selectedId, p.id === st.focusedId, darkMode);
         sp.position.copy(p._p);
         sc.add(sp);
         nodeMap[id] = { sp, p };

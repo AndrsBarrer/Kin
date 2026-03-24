@@ -96,7 +96,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS relationships (
     id         TEXT PRIMARY KEY DEFAULT (uuid_generate_v4()),
     tree_id    TEXT NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
-    type       TEXT NOT NULL CHECK(type IN ('parent_child','marriage','sibling')),
+    type       TEXT NOT NULL CHECK(type IN ('parent_child','marriage')),
     profile_a  TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     profile_b  TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     role_a     TEXT,

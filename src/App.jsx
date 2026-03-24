@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { people as peopleApi, profiles as profilesApi, media as mediaApi, auth, join, setToken } from './api/client';
+import { people as peopleApi, profiles as profilesApi, relationships as relApi, media as mediaApi, auth, join, setToken } from './api/client';
 import './App.css';
 import { toast } from './components/Toast';
 import { useTree } from './context/TreeContext';
@@ -12,6 +12,7 @@ import DetailPanel from './components/DetailPanel';
 import AddPersonModal from './components/AddPersonModal';
 import LanguageToggle from './components/LanguageToggle';
 import Toast from './components/Toast';
+import { getRelationshipErrorMessage, validateMarriageRelationship, validateParentChildRelationship } from './utils/relationshipValidation';
 
 const MAGIC_LINK_RESEND_DELAY_SECONDS = 30;
 const USER_PREFERENCES_STORAGE_KEY = 'kin_user_preferences_v1';
@@ -137,6 +138,20 @@ function dbRelToFrontend(r) {
     type: r.type === 'parent_child' ? 'parent' : r.type,
     a: r.profile_a,
     b: r.profile_b,
+  };
+}
+
+function getEditRelationshipSelections(personId, rels) {
+  const parentIds = rels
+    .filter((rel) => rel.type === 'parent' && rel.b === personId)
+    .map((rel) => rel.a)
+    .slice(0, 2);
+  const spouseRel = rels.find((rel) => rel.type === 'marriage' && (rel.a === personId || rel.b === personId));
+
+  return {
+    parent1: parentIds[0] || '',
+    parent2: parentIds[1] || '',
+    spouse: spouseRel ? (spouseRel.a === personId ? spouseRel.b : spouseRel.a) : '',
   };
 }
 
@@ -528,6 +543,17 @@ function App() {
       return false;
     }
 
+    const prospectiveRels = [];
+    for (const parentId of [data.parent1, data.parent2].filter(Boolean)) {
+      const validationError = validateParentChildRelationship(prospectiveRels, parentId, '__new__');
+      if (validationError) {
+        const message = getRelationshipErrorMessage(t, validationError, 'app.failedAddPerson');
+        toast(message || t('app.failedAddPerson'), 'error');
+        return false;
+      }
+      prospectiveRels.push({ id: `new-parent-${parentId}`, type: 'parent', a: parentId, b: '__new__' });
+    }
+
     try {
       const { profile, relationships: createdRels } = await peopleApi.createPerson(resolvedActiveTreeId, data);
 
@@ -553,13 +579,55 @@ function App() {
       return true;
     } catch (err) {
       console.error('[Kin] Failed to create person:', err);
-      toast(err.message || t('app.failedAddPerson'), 'error');
+      const message = getRelationshipErrorMessage(t, err.code, 'app.failedAddPerson');
+      toast(message || err.message || t('app.failedAddPerson'), 'error');
       return false;
     }
   }, [focusedId, people, resolvedActiveTreeId, t]);
 
   const handleUpdatePerson = useCallback(async (data) => {
     if (!editingPerson) return false;
+    if (!resolvedActiveTreeId) {
+      toast(t('app.noActiveTree'), 'error');
+      return false;
+    }
+
+    const desiredParentIds = [...new Set([data.parent1, data.parent2].filter(Boolean))];
+    if (desiredParentIds.length !== [data.parent1, data.parent2].filter(Boolean).length) {
+      toast(t('addPersonModal.parentsMustBeDifferent'), 'error');
+      return false;
+    }
+
+    const existingParentRels = rels.filter((rel) => rel.type === 'parent' && rel.b === editingPerson.id);
+    const existingParentIds = new Set(existingParentRels.map((rel) => rel.a));
+    const existingMarriage = rels.find((rel) => rel.type === 'marriage' && (rel.a === editingPerson.id || rel.b === editingPerson.id));
+    const currentSpouseId = existingMarriage
+      ? (existingMarriage.a === editingPerson.id ? existingMarriage.b : existingMarriage.a)
+      : null;
+    const prospectiveRels = rels.filter((rel) => !(rel.type === 'parent' && rel.b === editingPerson.id && !desiredParentIds.includes(rel.a)));
+
+    for (const parentId of desiredParentIds) {
+      if (existingParentIds.has(parentId)) continue;
+      const validationError = validateParentChildRelationship(prospectiveRels, parentId, editingPerson.id);
+      if (validationError) {
+        const message = getRelationshipErrorMessage(t, validationError, 'app.failedUpdatePerson');
+        toast(message || t('app.failedUpdatePerson'), 'error');
+        return false;
+      }
+      prospectiveRels.push({ id: `next-parent-${parentId}`, type: 'parent', a: parentId, b: editingPerson.id });
+    }
+
+    if (data.spouse && currentSpouseId !== data.spouse) {
+      const marriageBaseRels = existingMarriage
+        ? rels.filter((rel) => rel.id !== existingMarriage.id)
+        : rels;
+      const validationError = validateMarriageRelationship(marriageBaseRels, editingPerson.id, data.spouse);
+      if (validationError) {
+        const message = getRelationshipErrorMessage(t, validationError, 'app.failedUpdatePerson');
+        toast(message || t('app.failedUpdatePerson'), 'error');
+        return false;
+      }
+    }
 
     try {
       const updatedProfile = await profilesApi.update(editingPerson.id, {
@@ -576,6 +644,38 @@ function App() {
         },
       });
 
+      for (const rel of existingParentRels) {
+        if (!desiredParentIds.includes(rel.a)) {
+          await relApi.remove(rel.id);
+        }
+      }
+
+      for (const parentId of desiredParentIds) {
+        if (!existingParentIds.has(parentId)) {
+          await relApi.create({
+            treeId: resolvedActiveTreeId,
+            type: 'parent_child',
+            profileA: parentId,
+            profileB: editingPerson.id,
+          });
+        }
+      }
+
+      if (existingMarriage && currentSpouseId !== (data.spouse || null)) {
+        await relApi.remove(existingMarriage.id);
+      }
+
+      if (data.spouse && currentSpouseId !== data.spouse) {
+        await relApi.create({
+          treeId: resolvedActiveTreeId,
+          type: 'marriage',
+          profileA: editingPerson.id,
+          profileB: data.spouse,
+        });
+      }
+
+      const refreshedRelationships = await relApi.list(resolvedActiveTreeId);
+
       setPeople((current) => current.map((person) => {
         if (person.id !== editingPerson.id) return person;
         const nextPerson = dbToFrontend(updatedProfile);
@@ -583,15 +683,17 @@ function App() {
         nextPerson._v = person._v;
         return nextPerson;
       }));
+      setRels(refreshedRelationships.map(dbRelToFrontend));
       setEditingPerson(null);
       toast(t('app.personUpdated', { name: `${updatedProfile.first_name} ${updatedProfile.last_name}` }));
       return true;
     } catch (err) {
       console.error('[Kin] Failed to update person:', err);
-      toast(err.message || t('app.failedUpdatePerson'), 'error');
+      const message = getRelationshipErrorMessage(t, err.code, 'app.failedUpdatePerson');
+      toast(message || err.message || t('app.failedUpdatePerson'), 'error');
       return false;
     }
-  }, [editingPerson, t]);
+  }, [editingPerson, rels, resolvedActiveTreeId, t]);
 
   const handleRelationshipAdded = useCallback((rel) => {
     setRels(prev => [...prev, dbRelToFrontend(rel)]);
@@ -800,6 +902,7 @@ function App() {
           focusedId={focusedId}
           pathMode={pathMode}
           graphMode={graphMode}
+          darkMode={darkMode}
           onNodeClick={handleNodeClick}
           onPathSelect={handlePathSelect}
           tooltipRef={tooltipRef}
@@ -924,6 +1027,7 @@ function App() {
             people={people}
             mode={editingPerson ? 'edit' : 'create'}
             initialValues={editingPerson ? {
+              id: editingPerson.id,
               firstName: editingPerson.firstName,
               lastName: editingPerson.lastName,
               maiden: editingPerson.maiden,
@@ -931,6 +1035,7 @@ function App() {
               birth: editingPerson.birth,
               death: editingPerson.death,
               bio: editingPerson.bio,
+              ...getEditRelationshipSelections(editingPerson.id, rels),
             } : null}
             onSave={editingPerson ? handleUpdatePerson : handleSavePerson}
             onClose={() => {

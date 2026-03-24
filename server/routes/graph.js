@@ -25,6 +25,7 @@ router.get('/neighborhood', async (req, res, next) => {
          FROM walk w
          JOIN relationships r ON (r.profile_a = w.pid OR r.profile_b = w.pid)
                               AND r.deleted_at IS NULL
+                              AND r.type IN ('parent_child', 'marriage')
          WHERE w.d < $2
        )
        SELECT DISTINCT pid AS profile_id, min(d) AS depth FROM walk GROUP BY pid`,
@@ -49,7 +50,8 @@ router.get('/neighborhood', async (req, res, next) => {
     const { rows: relationships } = pool.query(
       `SELECT * FROM relationships
        WHERE (profile_a IN (${relationshipProfileAPlaceholders}) OR profile_b IN (${relationshipProfileBPlaceholders}))
-         AND deleted_at IS NULL`,
+         AND deleted_at IS NULL
+         AND type IN ('parent_child', 'marriage')`,
       [...profileIds, ...profileIds]
     );
 

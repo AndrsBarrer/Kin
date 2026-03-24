@@ -12,6 +12,7 @@ function sanitizeYear(value) {
 export default function AddPersonModal({ activeTreeId, treeLoading, people, onSave, onClose, mode = 'create', initialValues = null }) {
   const { t } = useTranslation();
   const isEditMode = mode === 'edit';
+  const currentProfileId = initialValues?.id || null;
   const [fn, setFn] = useState('');
   const [ln, setLn] = useState('');
   const [mn, setMn] = useState('');
@@ -32,7 +33,10 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
   const dupeTimer = useRef(null);
   const modalRef = useRef(null);
   const canSubmit = isEditMode || (Boolean(activeTreeId) && !treeLoading);
-  const hasRelationshipStep = !isEditMode && people.length > 0;
+  const selectablePeople = people.filter((person) => person.id !== currentProfileId);
+  const parent1Options = selectablePeople.filter((person) => person.id === p1 || person.id !== p2);
+  const parent2Options = selectablePeople.filter((person) => person.id === p2 || person.id !== p1);
+  const hasRelationshipStep = selectablePeople.length > 0;
   const mobileSteps = [
     {
       key: 'identity',
@@ -198,6 +202,10 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
       return;
     }
     if (!validateIdentityStep()) return;
+    if (p1 && p2 && p1 === p2) {
+      alert(t('addPersonModal.parentsMustBeDifferent'));
+      return;
+    }
     setSaving(true);
     try {
       const saved = await onSave({
@@ -321,14 +329,14 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
                 <label>{t('addPersonModal.parent1')}</label>
                 <select value={p1} onChange={e => setP1(e.target.value)}>
                   <option value="">— {t('addPersonModal.noneOption')} —</option>
-                  {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                  {parent1Options.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
                 </select>
               </div>
               <div className={s.fg}>
                 <label>{t('addPersonModal.parent2')}</label>
                 <select value={p2} onChange={e => setP2(e.target.value)}>
                   <option value="">— {t('addPersonModal.noneOption')} —</option>
-                  {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                  {parent2Options.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
                 </select>
               </div>
             </div>
@@ -336,7 +344,7 @@ export default function AddPersonModal({ activeTreeId, treeLoading, people, onSa
               <label>{t('addPersonModal.spouse')}</label>
               <select value={sp} onChange={e => setSp(e.target.value)}>
                 <option value="">— {t('addPersonModal.noneOption')} —</option>
-                {people.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                {selectablePeople.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
               </select>
             </div>
           </div>
